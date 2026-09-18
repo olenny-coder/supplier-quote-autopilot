@@ -11,6 +11,13 @@ public_form/.env
 *.pem
 *.key
 
+# `dev.cmd key` writes a plaintext backup of the previous .env before editing it,
+# so that the operator can undo a mistyped key. The backup contains the API key in
+# the clear, which makes it the single easiest secret to leak with a careless
+# `git add -A`. Ignored explicitly, in addition to the general *.bak rule below.
+*.env.bak
+*.bak
+
 # --- python -------------------------------------------------------------------
 backend/.venv/
 .venv/

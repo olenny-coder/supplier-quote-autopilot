@@ -99,10 +99,13 @@ invitation time.
 | Command | What it does |
 | --- | --- |
 | `dev.cmd` | Start everything (installs and seeds on the first run) |
+| `dev.cmd key` | **Paste your LLM API key** — prompts, writes it, restarts, verifies |
+| `dev.cmd llm` | Check whether the configured LLM key works |
+| `dev.cmd open` | Re-open the UI in your browser without restarting anything |
 | `dev.cmd reset` | Wipe the database, re-seed the demo, then start |
 | `dev.cmd seed` | Load the demo workspace without starting anything |
 | `dev.cmd links` | Re-print the links for an already-running instance |
-| `dev.cmd stop` | Stop whatever holds ports 8000 / 5173 / 5174 |
+| `dev.cmd stop` | Stop everything, including leftover windows from earlier runs |
 
 Each service opens in its own window so you can read its log; closing a window stops
 that service. Email is logged, never sent, so no real supplier address is contacted.
@@ -253,8 +256,17 @@ LLM_MODEL=openai/gpt-oss-120b
 LLM_API_KEY=gsk_…
 ```
 
+   Or let the launcher do it — it writes the file without a BOM (which would corrupt
+   the first variable), fixes a retired `LLM_MODEL` if it finds one, restarts the
+   API, and verifies the key with a real request:
+
+```cmd
+dev.cmd key
+```
+
 4. **Restart the API** — settings are read once at process start, so `uvicorn`'s
-   file watcher will *not* pick up a `.env` change:
+   file watcher will *not* pick up a `.env` change. `dev.cmd key` does this for you;
+   if you edited the file by hand:
 
 ```cmd
 dev.cmd stop

@@ -7,6 +7,7 @@ REM  Usage (from a plain Command Prompt, in this folder):
 REM
 REM      dev.cmd            start the API + buyer dashboard + supplier form
 REM      dev.cmd open       restart nothing, just open the UI in your browser
+REM      dev.cmd key        paste your LLM API key (prompts, writes, restarts, verifies)
 REM      dev.cmd llm        check whether your LLM API key works
 REM      dev.cmd reset      wipe the database, re-seed the demo, then start
 REM      dev.cmd seed       load the demo workspace (buyer, suppliers, RFQ, links)
@@ -14,13 +15,7 @@ REM      dev.cmd stop       stop whatever is listening on ports 8000/5173/5174
 REM      dev.cmd links      print the test links for an already-running instance
 REM
 REM  Adding your own free LLM key (optional - the app works without one):
-REM      1. Get one at https://console.groq.com   (free, no credit card)
-REM      2. Open backend\.env and set:   LLM_API_KEY=gsk_your_key_here
-REM      3. Restart the API:  dev.cmd stop   then   dev.cmd
-REM      4. Confirm it works: dev.cmd llm
-REM
-REM  Why a restart: settings are read once when the API process starts, so a .env
-REM  change is not picked up by uvicorn's file watcher.
+REM      dev.cmd key        <- prompts for the key and does everything else
 REM
 REM  What it starts:
 REM      8000  FastAPI + Swagger UI
@@ -66,12 +61,13 @@ if /i "%ACTION%"=="seed" goto :seed
 if /i "%ACTION%"=="reset" goto :reset
 if /i "%ACTION%"=="open" goto :open
 if /i "%ACTION%"=="llm" goto :llm
+if /i "%ACTION%"=="key" goto :key
 if /i "%ACTION%"=="start" goto :start
 
 echo.
 echo   Unknown option: %ACTION%
 echo.
-echo   Usage: dev.cmd [start ^| open ^| llm ^| reset ^| seed ^| stop ^| links]
+echo   Usage: dev.cmd [start ^| open ^| key ^| llm ^| reset ^| seed ^| stop ^| links]
 echo.
 exit /b 1
 
@@ -194,9 +190,12 @@ REM ---- launch ---------------------------------------------------------------
 echo.
 echo   Starting services in separate windows...
 
-start "SQA API  :8000"            cmd /k "cd /d "%ROOT%backend"     && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
-start "SQA Dashboard :5173"       cmd /k "cd /d "%ROOT%frontend"    && npm run dev"
-start "SQA Supplier Form :5174"   cmd /k "cd /d "%ROOT%public_form" && npm run dev"
+REM Launched from a script rather than with cmd's `start`, because `start`
+REM inherits this process's stdout. A long-lived service window holding that
+REM handle means `dev.cmd > log.txt` (or any pipe) never reaches EOF and appears
+REM to hang, even though the services came up fine. Start-Process gives each
+REM service its own console, so nothing of the caller's is inherited.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0dev-start-services.ps1"
 
 echo   Started. Close those windows to stop the services, or run: dev.cmd stop
 goto :links
@@ -210,6 +209,15 @@ pushd backend
 call uv run python -m scripts.show_links --timeout 10 --open
 popd
 exit /b 0
+
+
+REM ===========================================================================
+REM  KEY  - prompt for the LLM API key, write it, restart, verify
+REM ===========================================================================
+:key
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0set-llm-key.ps1" %2 %3 %4 %5
+exit /b %errorlevel%
 
 
 REM ===========================================================================
@@ -274,43 +282,12 @@ REM ===========================================================================
 REM  STOP
 REM ===========================================================================
 :stop
-echo.
-echo   Stopping anything on ports 8000, 5173 and 5174...
-
-REM Why this delegates to PowerShell instead of looping over `netstat` in cmd:
-REM `uvicorn --reload` runs as a supervisor process with a worker child, and the
-REM child is what holds the socket. Killing just the listener leaves the
-REM supervisor alive, and it immediately respawns a worker that re-binds the port
-REM -- so a naive stop looks like it worked and then the port is busy again.
-REM This walks one level up (supervisor / npm.cmd wrapper) and terminates the
-REM whole tree, then re-checks that the ports actually came free.
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ports = 8000, 5173, 5174;" ^
-  "$killed = 0;" ^
-  "foreach ($port in $ports) {" ^
-  "  $owners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique);" ^
-  "  foreach ($ownerPid in $owners) {" ^
-  "    if (-not $ownerPid -or $ownerPid -le 4) { continue };" ^
-  "    $parent = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownerPid) -ErrorAction SilentlyContinue).ParentProcessId;" ^
-  "    if ($parent -and $parent -gt 4) {" ^
-  "      taskkill /F /T /PID $parent 2>&1 | Out-Null;" ^
-  "    }" ^
-  "    taskkill /F /T /PID $ownerPid 2>&1 | Out-Null;" ^
-  "    Write-Host ('        stopped the service on port ' + $port);" ^
-  "    $killed++;" ^
-  "  }" ^
-  "}" ^
-  "if ($killed -eq 0) { Write-Host '        nothing was listening.' };" ^
-  "Start-Sleep -Milliseconds 700;" ^
-  "$still = @();" ^
-  "foreach ($port in $ports) { if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { $still += $port } };" ^
-  "if ($still.Count -gt 0) { Write-Host ('        WARNING: still listening on ' + ($still -join ', ') + ' - run dev.cmd stop again') }"
-
-echo.
-echo   Done. You can close any SQA service windows that are still open.
-echo.
-exit /b 0
+REM The logic lives in dev-stop.ps1: it needs to walk process trees and match
+REM command lines, which is unreadable and error-prone as inline PowerShell
+REM inside cmd (nested quotes break). Doing it in a file also means it can be
+REM read and tested on its own.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0dev-stop.ps1"
+exit /b %errorlevel%
 
 
 REM ===========================================================================
