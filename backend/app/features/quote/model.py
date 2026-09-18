@@ -1,7 +1,28 @@
+"""Supplier quotes.
+
+Extended in place: ``supplier_name``, ``unit_price``, ``currency``, ``lead_time``,
+``payment_terms`` and ``remarks`` keep their original names and semantics so the
+base codebase's importer, manual form, and tests continue to work. Everything
+added is either nullable or defaulted.
+
+Two ideas are new here:
+
+* **Source** — a quote can arrive via the public web form, manual entry, or bulk
+  import. Only form quotes have an ``invitation``.
+* **Normalization** — the raw submitted figures are never overwritten. The
+  comparison engine's converted/landed-cost results are stored alongside them
+  (``normalized_*``), so a buyer can always see what the supplier actually said.
+"""
+
+from datetime import date
+from datetime import datetime
 from decimal import Decimal
 
+from sqlalchemy import Date
+from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
+from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped
@@ -9,9 +30,15 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.mixins import TimestampMixin
+
+QUOTE_SOURCES = ("form", "manual", "import")
+
+#: complete | incomplete | flagged
+COMPLETENESS_STATES = ("complete", "incomplete", "flagged")
 
 
-class SupplierQuote(Base):
+class SupplierQuote(TimestampMixin, Base):
     __tablename__ = "supplier_quotes"
 
     id: Mapped[int] = mapped_column(
@@ -26,26 +53,55 @@ class SupplierQuote(Base):
             ondelete="CASCADE",
         ),
         nullable=False,
+        index=True,
     )
 
+    #: Set only for quotes submitted through a tokenized form link.
+    invitation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invitations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    supplier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    #: Reference shown to the supplier on the confirmation page.
+    reference_number: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
+    # ------------------------------------------------------- original columns
     supplier_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
 
-    unit_price: Mapped[Decimal] = mapped_column(
+    #: Nullable because an "incomplete" submission is a real, tracked state: the
+    #: supplier responded but left a required field blank. A null price is
+    #: excluded from cost ranking rather than treated as zero.
+    unit_price: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 2),
-        nullable=False,
+        nullable=True,
     )
 
     currency: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
+        default="USD",
+        server_default="USD",
     )
 
-    lead_time: Mapped[int] = mapped_column(
+    #: Production lead time in days.
+    lead_time: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
+        nullable=True,
     )
 
     payment_terms: Mapped[str | None] = mapped_column(
@@ -58,7 +114,178 @@ class SupplierQuote(Base):
         nullable=True,
     )
 
+    # ------------------------------------------------------- form-collected
+    contact_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    unit: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pcs",
+        server_default="pcs",
+    )
+
+    incoterms: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+    )
+
+    moq: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    validity_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    warranty_months: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    #: Supplier-quoted freight. Combined with duties/taxes/discount by the
+    #: landed-cost model in comparison/cost.py.
+    shipping_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    duties: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    taxes: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    discount: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        String(4000),
+        nullable=True,
+    )
+
+    #: [{key, filename, content_type, size, url}] — the key is storage-relative.
+    attachments: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    source: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="manual",
+        server_default="manual",
+    )
+
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # ---------------------------------------------------------- normalization
+    normalized_currency: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+    )
+
+    #: Unit price converted into the RFQ's currency.
+    normalized_unit_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 4),
+        nullable=True,
+    )
+
+    #: Unit price converted into the RFQ's currency *and* adjusted to the RFQ's
+    #: Incoterms basis.
+    normalized_incoterms: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+    )
+
+    #: Full landed cost for the RFQ quantity at the RFQ's Incoterms basis.
+    normalized_total_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(16, 2),
+        nullable=True,
+    )
+
+    #: The itemised breakdown behind ``normalized_total_cost``.
+    cost_breakdown: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    normalized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    #: {"price": 82.5, "lead_time": 70.0, ...} — per-criterion scores.
+    scores: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    composite_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2),
+        nullable=True,
+    )
+
+    completeness: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="complete",
+        server_default="complete",
+        index=True,
+    )
+
+    #: Required fields the supplier did not answer — drives targeted follow-ups.
+    missing_fields: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    #: Human-readable concerns surfaced to the buyer, e.g. long lead time,
+    #: expired validity, unusual payment terms.
+    risk_flags: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    #: Free-text the supplier typed that the parser could not map to a field.
+    unparsed_notes: Mapped[str | None] = mapped_column(
+        String(4000),
+        nullable=True,
+    )
+
+    # -------------------------------------------------------------- relations
     rfq = relationship(
         "RFQ",
         back_populates="quotes",
     )
+
+    invitation = relationship(
+        "Invitation",
+        back_populates="quote",
+    )
+
+    supplier = relationship(
+        "Supplier",
+        back_populates="quotes",
+    )
+
+    # --------------------------------------------------------------- helpers
+    @property
+    def has_price(self) -> bool:
+        return self.unit_price is not None and self.unit_price > 0
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<SupplierQuote id={self.id} supplier={self.supplier_name!r}>"

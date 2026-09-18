@@ -1,0 +1,64 @@
+Supplier Quote Autopilot
+Copyright (c) 2026 Supplier Quote Autopilot contributors
+
+--------------------------------------------------------------------------------
+THIRD-PARTY NOTICES
+--------------------------------------------------------------------------------
+
+This product contains concepts, prompt patterns, and small code fragments adapted
+from ForgeFlow, which is distributed under the MIT License:
+
+    ForgeFlow
+    Copyright (c) 2026 JayleeBot
+    https://github.com/JayleeBot/ForgeFlow
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+Files containing material adapted from ForgeFlow (each carries an inline
+attribution header):
+
+  * agents/quote_parser/prompts.py      - verbatim-or-null grounding rules,
+                                          quote extraction field set
+  * agents/quote_parser/schemas.py      - structured quote schema shape
+  * agents/quote_parser/classify.py     - inbound-message classification taxonomy
+  * agents/quote_parser/completeness.py - missing-field rule set
+  * agents/followup/policy.py           - three-way follow-up decision ordering
+  * agents/followup/prompts.py          - supplier-facing follow-up writing rules
+  * comparison/score.py                 - long-lead-time risk flagging
+
+ForgeFlow itself is NOT vendored into this repository. It remains a separate
+reference repository; only the files listed above adapt its design, and all of
+them are independent re-implementations against this project's own data model.
+
+--------------------------------------------------------------------------------
+BASE CODEBASE
+--------------------------------------------------------------------------------
+
+The application in this repository is built on top of "rfq-comparison-tool"
+(FastAPI + SQLAlchemy + PostgreSQL backend, React 19 + Vite + Tailwind frontend).
+That codebase ships no LICENSE file and is treated as first-party code supplied
+by the project owner.
+
+--------------------------------------------------------------------------------
+RUNTIME DEPENDENCIES
+--------------------------------------------------------------------------------
+
+Python and Node dependencies are consumed under their own licenses (predominantly
+MIT, BSD, and Apache-2.0). Run `uv tree` in backend/ and `npm ls` in frontend/ and
+public_form/ for the resolved dependency set.

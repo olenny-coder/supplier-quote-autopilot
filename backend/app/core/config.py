@@ -1,27 +1,179 @@
+"""Application settings.
+
+Every secret and every environment-dependent knob is read here, from the
+environment or from a local ``.env``. Nothing else in the codebase reads
+``os.environ`` directly.
+
+Two rules this module enforces:
+
+* **No SMTP.** Render's free tier blocks outbound ports 25/465/587, so email is
+  configured as an HTTPS provider only (see ``EMAIL_PROVIDER``).
+* **No hard-coded provider.** The LLM is always addressed through an
+  OpenAI-compatible ``LLM_BASE_URL`` so Groq, OpenRouter, and Gemini are a
+  three-variable swap.
+"""
+
+import json
 from functools import lru_cache
 from typing import Annotated
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+DEV_SECRET_KEY = "dev-insecure-secret-change-me"
+DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg://postgres:postgres@localhost:5432/supplier_quote_db"
+)
+
+# Provider presets, used by /health and the README so a misconfigured deployment
+# is diagnosable from the API rather than only from logs.
+LLM_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile",
+        "signup": "https://console.groq.com",
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "deepseek/deepseek-r1:free",
+        "signup": "https://openrouter.ai",
+    },
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model": "gemini-2.0-flash",
+        "signup": "https://aistudio.google.com",
+    },
+}
+
 
 class Settings(BaseSettings):
-    APP_NAME: str = "Supplier Quote Comparison Tool"
+    APP_NAME: str = "Supplier Quote Autopilot"
+    APP_VERSION: str = "1.0.0"
 
-    DATABASE_URL: str
+    # "development" enables console email logging and verbose CORS defaults.
+    ENV: str = "development"
 
-    OPENAI_API_KEY: str = ""
+    # ------------------------------------------------------------------ database
+    # Neon **pooled** connection string for the app ("-pooler" in the hostname).
+    DATABASE_URL: str = DEFAULT_DATABASE_URL
+    # Neon **direct** (non-pooled) connection string, used only by Alembic. Falls
+    # back to DATABASE_URL when unset so migrations also work in local dev.
+    DATABASE_URL_DIRECT: str = ""
 
-    # Resend transactional email (used by the supplier-mail agent). When the key
-    # is unset the mailer refuses to send and surfaces a clear error.
-    RESEND_API_KEY: str = ""
-    MAIL_FROM: str = "Procurement Assistant <onboarding@resend.dev>"
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_RECYCLE_SECONDS: int = 300
+
+    # ---------------------------------------------------------------------- auth
+    SECRET_KEY: str = DEV_SECRET_KEY
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+
+    # ---------------------------------------------------------------------- URLs
+    BACKEND_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:5173"
+    # Where the supplier-facing quote form is hosted (separate Vercel project).
+    PUBLIC_FORM_URL: str = "http://localhost:5174"
 
     # NoDecode disables pydantic-settings' default JSON decoding for this
     # complex field, so the comma-separated .env value reaches the validator
     # below as a raw string instead of failing a json.loads() parse.
     ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["*"]
 
+    # ----------------------------------------------------------------------- LLM
+    # Any OpenAI-compatible endpoint. Defaults to Groq's free tier.
+    LLM_BASE_URL: str = LLM_PROVIDER_PRESETS["groq"]["base_url"]
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = LLM_PROVIDER_PRESETS["groq"]["model"]
+
+    # Free-tier guardrails. Groq's free tier is ~30 requests/minute and
+    # 14,400 requests/day per model; the client spaces requests out and retries
+    # with exponential backoff on 429/5xx.
+    LLM_REQUESTS_PER_MINUTE: int = 30
+    LLM_MAX_CONCURRENCY: int = 2
+    LLM_MAX_RETRIES: int = 4
+    LLM_TIMEOUT_SECONDS: float = 60.0
+    LLM_ENABLED: bool = True
+    #: Hard cap on how many LLM calls one batch job may issue before stopping.
+    LLM_BATCH_MAX_CALLS: int = 50
+
+    # Legacy: the base repo's chat agents used OPENAI_API_KEY. Kept so an
+    # existing .env keeps working; LLM_API_KEY wins when both are set.
+    OPENAI_API_KEY: str = ""
+
+    # --------------------------------------------------------------------- email
+    # console | resend | sendgrid | mailgun | brevo   (never SMTP)
+    EMAIL_PROVIDER: str = "console"
+    EMAIL_API_KEY: str = ""
+    # Optional override for self-hosted / regional endpoints.
+    EMAIL_API_URL: str = ""
+    MAIL_FROM: str = "Supplier Quote Autopilot <onboarding@resend.dev>"
+    # Legacy Resend-specific key from the base repo; used when EMAIL_API_KEY is blank.
+    RESEND_API_KEY: str = ""
+
+    # ------------------------------------------------------------------- storage
+    # local | s3   (s3 = any S3-compatible service: R2, B2, Neon Object Storage)
+    STORAGE_BACKEND: str = "local"
+    UPLOAD_DIR: str = "./var/uploads"
+    MAX_UPLOAD_MB: int = 10
+    ALLOWED_UPLOAD_EXTENSIONS: Annotated[list[str], NoDecode] = [
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".csv",
+        ".xlsx",
+        ".doc",
+        ".docx",
+    ]
+    S3_ENDPOINT_URL: str = ""
+    S3_BUCKET: str = ""
+    S3_REGION: str = "auto"
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    # Set when the bucket is fronted by a CDN / public domain; otherwise
+    # downloads are proxied through the backend.
+    S3_PUBLIC_BASE_URL: str = ""
+
+    # ------------------------------------------------- public form & anti-spam
+    INVITATION_TTL_DAYS: int = 30
+    # Per-IP request budget for the public endpoints.
+    PUBLIC_RATE_LIMIT_PER_MINUTE: int = 20
+    PUBLIC_RATE_LIMIT_PER_HOUR: int = 60
+    # none | turnstile | hcaptcha
+    CAPTCHA_PROVIDER: str = "none"
+    CAPTCHA_SITE_KEY: str = ""
+    CAPTCHA_SECRET_KEY: str = ""
+
+    # ----------------------------------------------------------------- follow-ups
+    # When false (the default) drafts are queued for buyer approval. Awarding is
+    # *always* human-approved regardless of this flag.
+    AUTO_SEND_FOLLOWUPS: bool = False
+    #: Hours after the invitation was sent, per reminder.
+    FOLLOWUP_INTERVALS_HOURS: Annotated[list[int], NoDecode] = [72, 168]
+    #: Also remind N hours before the RFQ deadline if still unanswered.
+    FOLLOWUP_BEFORE_DEADLINE_HOURS: int = 48
+    MAX_FOLLOWUPS_PER_INVITATION: int = 3
+    #: Remind suppliers whose submitted quote is incomplete at most N times.
+    MAX_INCOMPLETE_REMINDERS: int = 2
+
+    SCHEDULER_ENABLED: bool = True
+    SCHEDULER_INTERVAL_MINUTES: int = 15
+    #: Shared secret for POST /internal/scheduler/tick (external cron).
+    SCHEDULER_SECRET: str = ""
+
+    # ----------------------------------------------------------------- comparison
+    BASE_CURRENCY: str = "USD"
+    #: JSON object overriding the built-in FX table, e.g. {"EUR": 0.92}.
+    FX_RATES_JSON: str = ""
+    #: JSON object overriding the default scoring weights.
+    DEFAULT_SCORING_WEIGHTS_JSON: str = ""
+    LEAD_TIME_RISK_DAYS: int = 90
+    #: Quotes older than this many days are flagged as stale.
+    QUOTE_VALIDITY_WARNING_DAYS: int = 7
+
+    # ------------------------------------------------------------------ validators
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_origins(cls, v: str | list[str]) -> list[str]:
@@ -29,10 +181,83 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
+    @field_validator("ALLOWED_UPLOAD_EXTENSIONS", mode="before")
+    @classmethod
+    def parse_extensions(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            items = [item.strip().lower() for item in v.split(",") if item.strip()]
+        else:
+            items = [str(item).strip().lower() for item in v]
+        return [item if item.startswith(".") else f".{item}" for item in items]
+
+    @field_validator("FOLLOWUP_INTERVALS_HOURS", mode="before")
+    @classmethod
+    def parse_intervals(cls, v: str | list[int]) -> list[int]:
+        if isinstance(v, str):
+            items = [item.strip() for item in v.split(",") if item.strip()]
+        else:
+            items = list(v)
+        return sorted({int(item) for item in items})
+
+    @field_validator("FX_RATES_JSON", "DEFAULT_SCORING_WEIGHTS_JSON", mode="before")
+    @classmethod
+    def validate_json_object(cls, v: Any) -> Any:
+        if v in (None, ""):
+            return ""
+        if isinstance(v, dict):
+            return json.dumps(v)
+        json.loads(v)  # raises a clear error at startup instead of at call time
+        return v
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
     )
+
+    # ------------------------------------------------------------------ helpers
+    @property
+    def is_production(self) -> bool:
+        return self.ENV.lower() in {"production", "prod"}
+
+    @property
+    def migration_database_url(self) -> str:
+        """Direct (non-pooled) URL for Alembic; pooled URL is for the app."""
+        return self.DATABASE_URL_DIRECT or self.DATABASE_URL
+
+    @property
+    def resolved_llm_api_key(self) -> str:
+        return self.LLM_API_KEY or self.OPENAI_API_KEY
+
+    @property
+    def resolved_email_api_key(self) -> str:
+        return self.EMAIL_API_KEY or self.RESEND_API_KEY
+
+    @property
+    def fx_rates(self) -> dict[str, float]:
+        if not self.FX_RATES_JSON:
+            return {}
+        return {k.upper(): float(v) for k, v in json.loads(self.FX_RATES_JSON).items()}
+
+    @property
+    def scoring_weights(self) -> dict[str, float]:
+        if not self.DEFAULT_SCORING_WEIGHTS_JSON:
+            return {}
+        return {
+            k: float(v)
+            for k, v in json.loads(self.DEFAULT_SCORING_WEIGHTS_JSON).items()
+        }
+
+    def llm_configured(self) -> bool:
+        return bool(self.LLM_ENABLED and self.resolved_llm_api_key)
+
+    def email_configured(self) -> bool:
+        if self.EMAIL_PROVIDER == "console":
+            return True
+        return bool(self.resolved_email_api_key)
+
+    def public_form_link(self, rfq_id: int, token: str) -> str:
+        base = self.PUBLIC_FORM_URL.rstrip("/")
+        return f"{base}/quote/{rfq_id}/{token}"
 
 
 @lru_cache
