@@ -1,0 +1,274 @@
+@import "tailwindcss";
+
+/*
+ * ----------------------------------------------------------------------------
+ * Theming strategy
+ * ----------------------------------------------------------------------------
+ * A single set of *semantic* design tokens is defined as CSS custom properties
+ * that flip values between light and dark. They are surfaced to Tailwind via
+ * `@theme inline`, which generates utilities (bg-surface, text-content, …) that
+ * resolve to the live variable — so the entire UI re-themes by toggling the
+ * `.dark` class on <html>, with zero `dark:` variants scattered through markup.
+ * ----------------------------------------------------------------------------
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #f4f6fb;
+  --bg-gradient: radial-gradient(
+      1200px 600px at 100% -10%,
+      rgba(99, 102, 241, 0.08),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at -10% 0%,
+      rgba(139, 92, 246, 0.07),
+      transparent 55%
+    );
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-hover: #f8fafc;
+  --surface-inset: #f8fafc;
+
+  /* Borders */
+  --border: #e6e9f0;
+  --border-strong: #cdd3e0;
+
+  /* Text */
+  --content: #0f172a;
+  --content-muted: #51607a;
+  --content-subtle: #93a0b5;
+
+  /* Brand / primary */
+  --primary: #5b5ef0;
+  --primary-hover: #4d50e0;
+  --primary-fg: #ffffff;
+  --primary-soft: #ececfe;
+  --primary-soft-fg: #4338ca;
+
+  /* Status */
+  --success: #059669;
+  --success-soft: #dcfce7;
+  --success-soft-fg: #047857;
+  --danger: #e11d48;
+  --danger-hover: #be123c;
+  --danger-soft: #ffe4e6;
+  --danger-soft-fg: #be123c;
+  --warning-soft: #fef3c7;
+  --warning-soft-fg: #b45309;
+
+  /* Effects */
+  --ring: rgba(91, 94, 240, 0.35);
+  --shadow-color: 220 40% 30%;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: #080a12;
+  --bg-gradient: radial-gradient(
+      1200px 600px at 100% -10%,
+      rgba(99, 102, 241, 0.12),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at -10% 0%,
+      rgba(139, 92, 246, 0.10),
+      transparent 55%
+    );
+  --surface: #11131c;
+  --surface-2: #1a1d28;
+  --surface-hover: #1c1f2b;
+  --surface-inset: #0d0f17;
+
+  --border: #232735;
+  --border-strong: #333949;
+
+  --content: #eef1f7;
+  --content-muted: #98a3b8;
+  --content-subtle: #5f6a80;
+
+  --primary: #7d80f7;
+  --primary-hover: #9295f9;
+  --primary-fg: #0a0b12;
+  --primary-soft: rgba(125, 128, 247, 0.16);
+  --primary-soft-fg: #b4b6fb;
+
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.16);
+  --success-soft-fg: #5eead4;
+  --danger: #fb5d76;
+  --danger-hover: #fd7188;
+  --danger-soft: rgba(251, 93, 118, 0.16);
+  --danger-soft-fg: #fda4b0;
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --warning-soft-fg: #fcd34d;
+
+  --ring: rgba(125, 128, 247, 0.45);
+  --shadow-color: 240 60% 2%;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-border-default: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-content: var(--content);
+  --color-muted: var(--content-muted);
+  --color-subtle: var(--content-subtle);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-fg: var(--primary-soft-fg);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-fg: var(--success-soft-fg);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-fg: var(--danger-soft-fg);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-fg: var(--warning-soft-fg);
+
+  --color-ring: var(--ring);
+
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+
+  --shadow-card: 0 1px 2px 0 hsl(var(--shadow-color) / 0.06),
+    0 1px 3px 0 hsl(var(--shadow-color) / 0.05);
+  --shadow-elevated: 0 10px 30px -12px hsl(var(--shadow-color) / 0.25),
+    0 4px 12px -6px hsl(var(--shadow-color) / 0.12);
+  --shadow-pop: 0 24px 60px -20px hsl(var(--shadow-color) / 0.45);
+}
+
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  color: var(--content);
+  background-color: var(--bg);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed;
+}
+
+/* Smooth, scoped theme transition (avoids global universal-selector jank) */
+body,
+.theme-transition,
+.theme-transition * {
+  transition: background-color 0.25s ease, border-color 0.25s ease,
+    color 0.2s ease, fill 0.2s ease;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+/* Themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--content-subtle);
+}
+
+/* Date input calendar icon adapts to dark mode */
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out;
+}

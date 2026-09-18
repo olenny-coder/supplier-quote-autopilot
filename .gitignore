@@ -1,0 +1,21 @@
+.env
+backend/.env
+frontend/.env
+
+backend/.venv/
+frontend/node_modules/
+
+__pycache__/
+
+*.pyc
+
+dist/
+
+.vscode/
+
+.idea/
+
+.pytest_cache/
+
+# Local dev startup scripts (developer convenience, not committed)
+/dev.cmd
