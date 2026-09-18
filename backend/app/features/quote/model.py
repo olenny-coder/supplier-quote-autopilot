@@ -266,6 +266,19 @@ class SupplierQuote(TimestampMixin, Base):
         nullable=True,
     )
 
+    #: Set when the supplier says they cannot finalize a value until the buyer
+    #: supplies something. Such a gap is escalated, never chased.
+    blocking_question: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+
+    #: 0–1 confidence reported by the parser. Low values are surfaced for review.
+    parse_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 2),
+        nullable=True,
+    )
+
     # -------------------------------------------------------------- relations
     rfq = relationship(
         "RFQ",

@@ -197,6 +197,13 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
     for index, result in enumerate(comparable, start=1):
         result.rank = index
 
+    # Present the stored results best-first, then the unranked ones. Consumers
+    # (the UI table, the CSV export, the LLM brief) all want this order, and
+    # leaving it in submission order would make every one of them re-sort.
+    comparison.results = comparable + [
+        result for result in comparison.results if not result.comparable
+    ]
+
     if comparable:
         comparison.recommended_quote_id = comparable[0].quote_id
         if len(comparable) > 1:

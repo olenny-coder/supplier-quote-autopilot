@@ -139,6 +139,12 @@ class SchedulerSummary(BaseModel):
     expired: int = 0
     failed: int = 0
     llm_calls: int = 0
+
+    #: Echoed back so a caller can tell from the response alone whether the run
+    #: was allowed to send email, and whether AI drafting was even attempted.
+    auto_send_enabled: bool = False
+    llm_available: bool = False
+
     run_at: datetime | None = None
     actions: list[dict[str, object]] = Field(default_factory=list)
 
