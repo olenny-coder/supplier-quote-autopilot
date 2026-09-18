@@ -1,17 +1,47 @@
+import EmptyState from "@/shared/components/EmptyState";
 import { Badge } from "@/shared/components/ui";
-import { formatPrice } from "@/shared/lib/format";
+import {
+  formatDate,
+  formatFieldKey,
+  formatLeadTime,
+  formatNumber,
+  formatPrice,
+  toNumber,
+} from "@/shared/lib/format";
+import { StatusBadge } from "@/shared/components/StatusBadge";
 
-import { useQuoteTable } from "../hooks";
+import { landedCostOf, useQuoteTable } from "../hooks";
 import QuoteTableToolbar from "./QuoteTableToolbar";
 
+/**
+ * Side-by-side quote table.
+ *
+ * Columns are one flat list because the buyer scans it horizontally: the quoted
+ * numbers first (as the supplier wrote them), then the normalised landed cost
+ * the comparison engine actually scores, then the commercial terms, then the
+ * caveats (completeness, risk flags, attachments).
+ *
+ * Money arrives as JSON strings from Python `Decimal`, so every value goes
+ * through `toNumber()` before it is formatted or compared — otherwise
+ * `formatPrice("1200.00")` would print NaN.
+ */
 const COLUMNS = [
   { key: "supplier_name", label: "Supplier", sortable: true },
-  { key: "unit_price", label: "Unit Price", sortable: true },
-  { key: "lead_time", label: "Lead Time", sortable: true },
-  { key: null, label: "Payment Terms", sortable: false },
-  { key: "total_price", label: "Total Price", sortable: true },
-  { key: null, label: "Remarks", sortable: false },
-  { key: "actions", label: "", sortable: false },
+  { key: "unit_price", label: "Quoted price", sortable: true },
+  { key: null, label: "Unit", sortable: false },
+  { key: "normalized_unit_price", label: "Normalised unit", sortable: true },
+  { key: "normalized_total_cost", label: "Landed cost", sortable: true },
+  { key: "lead_time", label: "Lead time", sortable: true },
+  { key: "moq", label: "MOQ", sortable: true },
+  { key: null, label: "Payment terms", sortable: false },
+  { key: null, label: "Incoterms", sortable: false },
+  { key: null, label: "Validity", sortable: false },
+  { key: null, label: "Warranty", sortable: false },
+  { key: "composite_score", label: "Score", sortable: true },
+  { key: null, label: "Completeness", sortable: false },
+  { key: null, label: "Risk flags", sortable: false },
+  { key: null, label: "Attachments", sortable: false },
+  { key: null, label: "", sortable: false },
 ];
 
 function QuoteTable({ quotes = [], onEdit, onDelete }) {
@@ -20,27 +50,10 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
 
   if (total === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-border-strong bg-surface p-12 text-center">
-        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-surface-2 text-subtle">
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-            />
-          </svg>
-        </div>
-        <p className="text-sm font-medium text-content">No quotes yet</p>
-        <p className="mt-1 text-xs text-subtle">
-          Add a quote manually or import via CSV / PDF
-        </p>
-      </div>
+      <EmptyState
+        title="No quotes yet"
+        description="Suppliers submit through their private links, or add one here manually or by importing a CSV / PDF."
+      />
     );
   }
 
@@ -53,20 +66,24 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
         visible={visible}
       />
 
+      {/* Wide by design: the buyer scans money, terms and caveats side by side,
+          so the table scrolls on phones instead of squashing into unreadable
+          columns. */}
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+        <table className="min-w-[1600px] w-full text-sm">
           <thead>
             <tr className="border-b border-border-default bg-surface-2">
-              {COLUMNS.map((col, index) => (
+              {COLUMNS.map((column, index) => (
                 <SortableHeader
-                  key={col.label || index}
-                  column={col}
+                  key={column.label || `column-${index}`}
+                  column={column}
                   sort={sort}
                   onSort={toggleSort}
                 />
               ))}
             </tr>
           </thead>
+
           <tbody className="divide-y divide-border-default">
             {rows.length === 0 ? (
               <tr>
@@ -80,53 +97,59 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
             ) : (
               rows.map((quote) => {
                 const isBest = quote.id === bestId;
+
+                // Prefer the API's human labels; fall back to mapping the keys
+                // so an incomplete quote is never an unlabelled chip.
+                const missingLabels =
+                  quote.missing_field_labels?.length > 0
+                    ? quote.missing_field_labels
+                    : (quote.missing_fields || []).map((field) =>
+                        formatFieldKey(field)
+                      );
+
                 return (
                   <tr
                     key={quote.id}
-                    className={`transition ${
+                    className={`align-top transition ${
                       isBest ? "bg-success-soft/40" : "hover:bg-surface-hover"
                     }`}
                   >
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-start gap-2.5">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-xs font-semibold text-primary-soft-fg">
-                          {quote.supplier_name.charAt(0).toUpperCase()}
+                          {(quote.supplier_name || "?").charAt(0).toUpperCase()}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-content">
-                            {quote.supplier_name}
-                          </span>
-                          {isBest && (
-                            <Badge variant="success">
-                              <svg
-                                className="h-2.5 w-2.5"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              Best
-                            </Badge>
-                          )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium text-content">
+                              {quote.supplier_name}
+                            </span>
+                            {isBest && <Badge variant="success">Lowest landed</Badge>}
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-subtle">
+                            {quote.reference_number ? `${quote.reference_number} · ` : ""}
+                            {quote.source || "manual"}
+                          </p>
                         </div>
                       </div>
                     </td>
 
                     <td className="whitespace-nowrap px-5 py-4 font-medium text-muted">
-                      {formatPrice(quote.unit_price, quote.currency)}
+                      {formatPrice(toNumber(quote.unit_price) ?? 0, quote.currency)}
                     </td>
 
                     <td className="whitespace-nowrap px-5 py-4 text-muted">
-                      {quote.lead_time} days
+                      {quote.unit || "—"}
                     </td>
 
-                    <td className="px-5 py-4 text-muted">
-                      {quote.payment_terms || (
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {quote.normalized_unit_price == null ? (
                         <span className="text-subtle">—</span>
+                      ) : (
+                        formatPrice(
+                          toNumber(quote.normalized_unit_price),
+                          quote.normalized_currency || quote.currency
+                        )
                       )}
                     </td>
 
@@ -136,20 +159,153 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
                           isBest ? "text-success-soft-fg" : "text-content"
                         }`}
                       >
-                        {formatPrice(quote.total_price, quote.currency)}
+                        {Number.isFinite(landedCostOf(quote))
+                          ? formatPrice(
+                              landedCostOf(quote),
+                              quote.normalized_currency || quote.currency
+                            )
+                          : "—"}
                       </span>
                     </td>
 
-                    <td className="max-w-xs truncate px-5 py-4 text-muted">
-                      {quote.remarks || <span className="text-subtle">—</span>}
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {formatLeadTime(quote.lead_time)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {formatNumber(quote.moq)}
+                    </td>
+
+                    <td className="max-w-[12rem] px-5 py-4 text-muted">
+                      {quote.payment_terms || <span className="text-subtle">—</span>}
+                    </td>
+
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {quote.incoterms || <span className="text-subtle">—</span>}
+                    </td>
+
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {quote.validity_date ? (
+                        formatDate(quote.validity_date)
+                      ) : (
+                        <span className="text-subtle">—</span>
+                      )}
+                    </td>
+
+                    <td className="whitespace-nowrap px-5 py-4 text-muted">
+                      {quote.warranty_months == null ? (
+                        <span className="text-subtle">—</span>
+                      ) : (
+                        `${formatNumber(quote.warranty_months)} months`
+                      )}
+                    </td>
+
+                    <td className="whitespace-nowrap px-5 py-4">
+                      {quote.composite_score == null ? (
+                        <span className="text-subtle">—</span>
+                      ) : (
+                        <span className="font-semibold text-content">
+                          {formatNumber(quote.composite_score, {
+                            maximumFractionDigits: 1,
+                          })}
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge status={quote.completeness} domain="quote" />
+
+                      {missingLabels.length > 0 && (
+                        <div className="mt-2 flex max-w-[14rem] flex-wrap gap-1.5">
+                          {missingLabels.map((label) => (
+                            <span
+                              key={label}
+                              className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-medium text-warning-soft-fg"
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {quote.blocking_question && (
+                        <p className="mt-2 max-w-[14rem] text-xs leading-relaxed text-subtle">
+                          {quote.blocking_question}
+                        </p>
+                      )}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {quote.risk_flags?.length ? (
+                        <div className="flex max-w-[16rem] flex-wrap gap-1.5">
+                          {quote.risk_flags.slice(0, 2).map((flag) => (
+                            <span
+                              key={flag}
+                              title={flag}
+                              className="rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-medium text-danger-soft-fg"
+                            >
+                              {flag.length > 34 ? `${flag.slice(0, 34)}…` : flag}
+                            </span>
+                          ))}
+
+                          {quote.risk_flags.length > 2 && (
+                            <span
+                              title={quote.risk_flags.slice(2).join("\n")}
+                              className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted"
+                            >
+                              +{quote.risk_flags.length - 2} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-subtle">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {quote.attachments?.length ? (
+                        <ul className="space-y-1">
+                          {quote.attachments.map((attachment) => (
+                            <li key={attachment.key || attachment.url}>
+                              <a
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                  strokeWidth={2}
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                                  />
+                                </svg>
+                                <span className="max-w-[10rem] truncate">
+                                  {attachment.filename || "Attachment"}
+                                </span>
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-subtle">—</span>
+                      )}
                     </td>
 
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          type="button"
                           onClick={() => onEdit?.(quote)}
                           className="rounded-lg p-1.5 text-subtle transition hover:bg-primary-soft hover:text-primary-soft-fg"
                           title="Edit quote"
+                          aria-label={`Edit quote from ${quote.supplier_name}`}
                         >
                           <svg
                             className="h-4 w-4"
@@ -165,10 +321,13 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
                             />
                           </svg>
                         </button>
+
                         <button
+                          type="button"
                           onClick={() => onDelete?.(quote)}
                           className="rounded-lg p-1.5 text-subtle transition hover:bg-danger-soft hover:text-danger-soft-fg"
                           title="Delete quote"
+                          aria-label={`Delete quote from ${quote.supplier_name}`}
                         >
                           <svg
                             className="h-4 w-4"
@@ -198,7 +357,8 @@ function QuoteTable({ quotes = [], onEdit, onDelete }) {
         <div className="flex items-center gap-2 border-t border-border-default bg-surface-2 px-5 py-3">
           <span className="inline-block h-2 w-2 rounded-full bg-success" />
           <p className="text-xs text-muted">
-            Lowest total price is highlighted.
+            Highlighted row has the lowest landed cost after currency, unit and
+            Incoterms normalisation.
           </p>
         </div>
       )}

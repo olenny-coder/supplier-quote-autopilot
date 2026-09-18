@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { toNumber } from "@/shared/lib/format";
+
 import { getQuotesByRFQ } from "./api";
 
 /**
@@ -18,7 +20,6 @@ export function useQuotes(rfqId) {
       const data = await getQuotesByRFQ(rfqId);
       setQuotes(data);
     } catch (error) {
-      console.error(error);
       toast.error(error.message);
     } finally {
       setLoading(false);
@@ -34,12 +35,35 @@ export function useQuotes(rfqId) {
 
 // Field accessors for client-side sorting. Keeping this map here makes adding
 // a new sortable column a one-line change.
+//
+// Money/int fields are parsed with `toNumber` because the API serialises Python
+// `Decimal` as a string, and `"1200.00" < "900.00"` is true for strings.
 const SORT_ACCESSORS = {
   supplier_name: (q) => (q.supplier_name || "").toLowerCase(),
-  unit_price: (q) => Number(q.unit_price),
-  lead_time: (q) => Number(q.lead_time),
-  total_price: (q) => Number(q.total_price),
+  unit_price: (q) => toNumber(q.unit_price) ?? Number.POSITIVE_INFINITY,
+  normalized_unit_price: (q) =>
+    toNumber(q.normalized_unit_price) ?? Number.POSITIVE_INFINITY,
+  normalized_total_cost: (q) =>
+    toNumber(q.normalized_total_cost) ?? Number.POSITIVE_INFINITY,
+  total_price: (q) => toNumber(q.total_price) ?? Number.POSITIVE_INFINITY,
+  lead_time: (q) => toNumber(q.lead_time) ?? Number.POSITIVE_INFINITY,
+  moq: (q) => toNumber(q.moq) ?? Number.POSITIVE_INFINITY,
+  composite_score: (q) => toNumber(q.composite_score) ?? -1,
 };
+
+/**
+ * The landed cost a quote is judged on: normalised total when the quote has
+ * been normalised, otherwise the raw unit price x quantity. Used for sorting,
+ * for the "lowest landed cost" highlight, and by every page that needs one
+ * comparable number per quote.
+ */
+export function landedCostOf(quote) {
+  return (
+    toNumber(quote.normalized_total_cost) ??
+    toNumber(quote.total_price) ??
+    Number.POSITIVE_INFINITY
+  );
+}
 
 /**
  * Client-side view-model for the quote table: search filtering, column
@@ -48,12 +72,19 @@ const SORT_ACCESSORS = {
  */
 export function useQuoteTable(quotes) {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState({ key: "total_price", direction: "asc" });
+  const [sort, setSort] = useState({ key: "normalized_total_cost", direction: "asc" });
 
+  // "Best" is the lowest landed cost among quotes that were normalised; a quote
+  // with no price at all can never win.
   const bestId = useMemo(() => {
-    if (!quotes.length) return null;
-    return quotes.reduce((best, cur) =>
-      Number(cur.total_price) < Number(best.total_price) ? cur : best
+    const priced = quotes.filter(
+      (quote) => Number.isFinite(landedCostOf(quote)) && landedCostOf(quote) !== Infinity
+    );
+
+    if (!priced.length) return null;
+
+    return priced.reduce((best, current) =>
+      landedCostOf(current) < landedCostOf(best) ? current : best
     ).id;
   }, [quotes]);
 
@@ -62,13 +93,14 @@ export function useQuoteTable(quotes) {
 
     const filtered = term
       ? quotes.filter((q) =>
-          [q.supplier_name, q.payment_terms, q.remarks]
+          [q.supplier_name, q.payment_terms, q.incoterms, q.remarks, q.reference_number]
             .filter(Boolean)
-            .some((field) => field.toLowerCase().includes(term))
+            .some((field) => String(field).toLowerCase().includes(term))
         )
       : quotes;
 
-    const accessor = SORT_ACCESSORS[sort.key] ?? SORT_ACCESSORS.total_price;
+    const accessor =
+      SORT_ACCESSORS[sort.key] ?? SORT_ACCESSORS.normalized_total_cost;
 
     return [...filtered].sort((a, b) => {
       const av = accessor(a);

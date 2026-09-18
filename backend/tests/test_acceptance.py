@@ -320,19 +320,38 @@ def test_full_acceptance_flow(client, db_session):
     ranked = [r for r in body["results"] if r["rank"] is not None]
     assert len(ranked) == 2
     assert ranked[0]["rank"] == 1
-    assert ranked[0]["composite_score"] > ranked[1]["composite_score"]
 
-    # The incomplete quote is docked and carries a note explaining why.
+    # The ordering rule: a complete quote always ranks ahead of an incomplete one,
+    # even when the incomplete one scores higher. An incomplete quote is missing
+    # exactly the fields that would change its own cost and terms, so it cannot win
+    # a comparison it is not fully entered into. Here Halcyon is cheaper per unit
+    # and scores better, and Nova still ranks first because Nova's quote is complete.
     halcyon_result = next(
         r for r in body["results"] if r["supplier_name"] == "Halcyon Fasteners"
     )
-    assert halcyon_result["completeness"] == "incomplete"
-    assert halcyon_result["incompleteness_note"]
-
-    # Nova's landed cost includes the freight and tax that were quoted separately.
     nova_result = next(
         r for r in body["results"] if r["supplier_name"] == "Nova Metals"
     )
+
+    assert nova_result["completeness"] == "complete"
+    assert halcyon_result["completeness"] == "incomplete"
+    assert nova_result["rank"] == 1
+    assert halcyon_result["rank"] == 2
+    assert float(halcyon_result["total_base"]) < float(nova_result["total_base"]), (
+        "the incomplete quote is genuinely cheaper, which is what makes the "
+        "ordering rule meaningful rather than incidental"
+    )
+    assert halcyon_result["composite_score"] > nova_result["composite_score"], (
+        "and it scores higher, so only the completeness rule puts it second"
+    )
+
+    # The rationale explains that ordering rather than leaving it a mystery.
+    assert "lower landed cost but is incomplete" in body["rationale"]
+
+    # The incomplete quote is docked and carries a note explaining why.
+    assert halcyon_result["incompleteness_note"]
+
+    # Nova's landed cost includes the freight and tax that were quoted separately.
     assert float(nova_result["breakdown"]["shipping"]) == 150.0
     assert float(nova_result["breakdown"]["taxes"]) == 75.0
     assert float(nova_result["total_base"]) == 2500.0 + 150.0 + 75.0

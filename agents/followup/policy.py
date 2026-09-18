@@ -27,6 +27,7 @@ from datetime import datetime
 
 from agents.followup.schemas import FollowUpDecision
 from agents.followup.schemas import InvitationSnapshot
+from agents.quote_parser.completeness import label_for
 
 #: Statuses that end the conversation entirely.
 TERMINAL_STATUSES = {"submitted", "cancelled", "declined", "expired"}
@@ -114,7 +115,12 @@ def decide(
                 ),
             )
 
-        labels = snapshot.missing_field_labels or snapshot.missing_fields
+        # Labels are always derived through label_for. Falling back to the raw
+        # field names would put internal vocabulary ("the moq and payment_terms")
+        # in front of a supplier, which the drafting rules forbid outright.
+        labels = snapshot.missing_field_labels or [
+            label_for(field) for field in snapshot.missing_fields
+        ]
 
         return FollowUpDecision(
             action="request_missing_fields",

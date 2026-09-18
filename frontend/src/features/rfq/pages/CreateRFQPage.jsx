@@ -8,6 +8,14 @@ import { Card } from "@/shared/components/ui";
 import { createRFQ } from "../api";
 import RFQForm from "../components/RFQForm";
 
+/**
+ * Full-page RFQ creation.
+ *
+ * A page rather than a modal since the form carries a suppliers step: the
+ * buyer adds up to three suppliers inline, picks any that already exist in the
+ * directory, and every one of them is issued a private form link in the same
+ * request.
+ */
 function CreateRFQPage() {
   const navigate = useNavigate();
 
@@ -19,9 +27,23 @@ function CreateRFQPage() {
 
       const createdRFQ = await createRFQ(payload);
 
+      const invited =
+        (payload.new_suppliers?.length || 0) + (payload.supplier_ids?.length || 0);
+
+      toast.success(
+        invited
+          ? `RFQ ${createdRFQ.rfq_number} created with ${invited} supplier${
+              invited === 1 ? "" : "s"
+            }.`
+          : `RFQ ${createdRFQ.rfq_number} created.`
+      );
+
+      if (!payload.send_invitations && invited) {
+        toast.warning("Invitations saved but not emailed — send them from the RFQ page.");
+      }
+
       navigate(`/rfqs/${createdRFQ.id}`);
     } catch (error) {
-      console.error(error);
       toast.error(error.message);
     } finally {
       setIsSubmitting(false);
@@ -32,7 +54,7 @@ function CreateRFQPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <Link
-          to="/"
+          to="/rfqs"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-content"
         >
           <svg
@@ -56,14 +78,15 @@ function CreateRFQPage() {
         </h1>
 
         <p className="mt-2 text-muted">
-          Create a new Request for Quotation to start collecting supplier quotes.
+          Describe what you need, set the deadline, and add the suppliers you want
+          quotes from — each one gets their own private form link.
         </p>
       </div>
 
       <Card className="p-6 sm:p-8">
         <RFQForm
           onSubmit={handleCreateRFQ}
-          onCancel={() => navigate("/")}
+          onCancel={() => navigate("/rfqs")}
           submitLabel="Create RFQ"
           isSubmitting={isSubmitting}
         />

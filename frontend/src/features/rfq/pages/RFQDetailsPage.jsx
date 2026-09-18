@@ -1,271 +1,248 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useMemo } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { toast } from "sonner";
-
-import Modal from "@/shared/components/Modal";
-import ConfirmModal from "@/shared/components/ConfirmModal";
+import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Badge, Button } from "@/shared/components/ui";
-import { formatDate } from "@/shared/lib/format";
+import { buttonClass } from "@/shared/lib/button";
+import { formatDateTime, formatNumber, formatRelativeTime } from "@/shared/lib/format";
+import { StatusBadge } from "@/shared/components/StatusBadge";
 
-import {
-  createQuote,
-  deleteQuote,
-  importQuotes,
-  updateQuote,
-} from "@/features/quote/api";
-import { useQuotes } from "@/features/quote/hooks";
-import QuoteForm from "@/features/quote/components/QuoteForm";
-import QuoteTable from "@/features/quote/components/QuoteTable";
-import FileImport from "@/features/quote/components/FileImport";
+import ComparisonTab from "@/features/comparison/components/ComparisonTab";
 
-import { useRFQ } from "../hooks";
+import FollowUpsTab from "../components/FollowUpsTab";
+import InvitationsTab from "../components/InvitationsTab";
+import QuotesTab from "../components/QuotesTab";
+import RFQDetailsTab from "../components/RFQDetailsTab";
+import { useRFQOverview } from "../hooks";
 
+const TABS = [
+  { key: "suppliers", label: "Suppliers & links" },
+  { key: "quotes", label: "Quotes" },
+  { key: "comparison", label: "Comparison" },
+  { key: "followups", label: "Follow-ups" },
+  { key: "details", label: "RFQ details" },
+];
+
+/**
+ * The RFQ workbench.
+ *
+ * One `GET /rfqs/{id}/overview` call feeds all five tabs, so the page has a
+ * single loading state and switching tabs never re-fetches. The active tab
+ * lives in the URL (`?tab=quotes`) because the dashboard and the RFQ list
+ * deep-link straight into a specific tab; `?invitation=` additionally
+ * highlights the row a buyer came to chase.
+ */
 function RFQDetailsPage() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { rfq, loading: rfqLoading } = useRFQ(id);
-  const { quotes, loading: quotesLoading, refresh: refreshQuotes } =
-    useQuotes(id);
+  const { overview, loading, error, refresh } = useRFQOverview(id);
 
-  const [showQuoteForm, setShowQuoteForm] = useState(false);
-  const [editingQuote, setEditingQuote] = useState(null);
-  const [savingQuote, setSavingQuote] = useState(false);
+  const tabParam = searchParams.get("tab");
+  const activeTab = TABS.some((tab) => tab.key === tabParam) ? tabParam : "suppliers";
+  const focusInvitationId = Number(searchParams.get("invitation")) || null;
 
-  const [uploadingCsv, setUploadingCsv] = useState(false);
+  const counts = useMemo(() => {
+    if (!overview) return {};
 
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedQuote, setSelectedQuote] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+    const awaiting = (overview.followups || []).filter((followup) =>
+      ["draft", "queued"].includes(followup.status)
+    ).length;
 
-  const handleSaveQuote = async (payload) => {
-    try {
-      setSavingQuote(true);
+    return {
+      suppliers: overview.invitations?.length || 0,
+      quotes: overview.quotes?.length || 0,
+      comparison: overview.comparison?.results?.length || 0,
+      followups: awaiting,
+    };
+  }, [overview]);
 
-      if (editingQuote) {
-        await updateQuote(editingQuote.id, payload);
-        toast.success("Supplier quote updated successfully.");
-      } else {
-        await createQuote(id, payload);
-        toast.success("Supplier quote added successfully.");
-      }
+  const selectTab = (key) => {
+    const next = new URLSearchParams(searchParams);
 
-      await refreshQuotes();
+    next.set("tab", key);
+    // The invitation highlight only makes sense on the tab that lists them.
+    if (key !== "suppliers") next.delete("invitation");
 
-      setEditingQuote(null);
-      setShowQuoteForm(false);
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setSavingQuote(false);
-    }
+    setSearchParams(next, { replace: true });
   };
 
-  const handleEditQuote = (quote) => {
-    setEditingQuote(quote);
-    setShowQuoteForm(true);
-  };
-
-  const handleDeleteQuote = (quote) => {
-    setSelectedQuote(quote);
-    setShowDeleteModal(true);
-  };
-
-  const confirmDeleteQuote = async () => {
-    if (!selectedQuote) {
-      return;
-    }
-
-    try {
-      setIsDeleting(true);
-
-      await deleteQuote(selectedQuote.id);
-
-      toast.success("Supplier quote deleted successfully.");
-
-      setShowDeleteModal(false);
-      setSelectedQuote(null);
-
-      await refreshQuotes();
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleCsvUpload = async (file) => {
-    try {
-      setUploadingCsv(true);
-
-      const result = await importQuotes(id, file);
-
-      await refreshQuotes();
-
-      toast.success(`Imported ${result.imported} quotes successfully.`);
-
-      if (result.failed > 0) {
-        toast.warning(`${result.failed} rows could not be imported.`);
-      }
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setUploadingCsv(false);
-    }
-  };
-
-  if (rfqLoading || quotesLoading) {
-    return <Loading message="Loading RFQ..." />;
+  if (loading && !overview) {
+    return <Loading message="Loading RFQ…" />;
   }
 
-  if (!rfq) {
-    return null;
+  if (!overview) {
+    return (
+      <EmptyState
+        title="RFQ not available"
+        description={
+          error || "This RFQ could not be loaded. It may have been deleted."
+        }
+        action={
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={refresh}>
+              Try again
+            </Button>
+            <Link to="/rfqs" className={buttonClass("primary", "md")}>
+              Back to RFQs
+            </Link>
+          </div>
+        }
+      />
+    );
   }
 
-  const formattedDelivery = formatDate(rfq.delivery_expectation);
+  const { rfq, invitations = [], quotes = [], followups = [], comparison } = overview;
+
+  const deadline = rfq.deadline ? new Date(rfq.deadline) : null;
+  const overdue = deadline ? deadline.getTime() < Date.now() : false;
 
   return (
-    <div className="space-y-8">
-      <Link
-        to="/"
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-content"
-      >
-        <svg
-          className="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
+    <div className="space-y-6">
+      <div>
+        <Link
+          to="/rfqs"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-content"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-        Back to RFQs
-      </Link>
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to RFQs
+        </Link>
 
-      <section className="overflow-hidden rounded-2xl border border-border-default bg-surface shadow-card">
-        <div className="border-b border-border-default bg-surface-2/50 px-6 py-5">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-2xl font-bold tracking-tight text-content">
-                  {rfq.item_name}
-                </h1>
-                {rfq.specification && (
-                  <Badge variant="primary">{rfq.specification}</Badge>
-                )}
-              </div>
-              <p className="text-sm text-muted">
-                Compare supplier quotes for this request below.
-              </p>
+        <div className="mt-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="neutral">{rfq.rfq_number}</Badge>
+              <StatusBadge status={rfq.status} domain="rfq" />
+              {rfq.ready_to_compare && (
+                <Badge variant="success">Ready to compare</Badge>
+              )}
+              {deadline && (
+                <Badge variant={overdue ? "danger" : "warning"}>
+                  {overdue
+                    ? `Deadline passed ${formatRelativeTime(rfq.deadline)}`
+                    : `Closes ${formatRelativeTime(rfq.deadline)}`}
+                </Badge>
+              )}
             </div>
 
-            <Button
-              className="shrink-0"
-              onClick={() => {
-                setEditingQuote(null);
-                setShowQuoteForm(true);
-              }}
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 5v14m-7-7h14"
-                />
-              </svg>
-              Add Quote
+            <h1 className="mt-3 text-2xl font-bold tracking-tight text-content sm:text-3xl">
+              {rfq.item_name}
+            </h1>
+
+            <p className="mt-2 text-sm text-muted">
+              {rfq.specification} · {formatNumber(rfq.quantity)}{" "}
+              {rfq.unit || "pcs"} · quotes in {rfq.currency}
+              {rfq.incoterms ? ` · ${rfq.incoterms}` : ""}
+              {rfq.deadline ? ` · deadline ${formatDateTime(rfq.deadline)}` : ""}
+            </p>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => selectTab("suppliers")}>
+              Invite suppliers
+            </Button>
+            <Button size="sm" variant="soft" onClick={() => selectTab("comparison")}>
+              Compare
             </Button>
           </div>
         </div>
 
-        <dl className="grid grid-cols-2 divide-x divide-y divide-border-default sm:grid-cols-4 sm:divide-y-0">
-          <DetailItem label="Quantity" value={rfq.quantity?.toLocaleString()} />
-          <DetailItem label="Delivery" value={formattedDelivery} />
-          <DetailItem label="Specification" value={rfq.specification || "—"} />
-          <DetailItem label="Notes" value={rfq.notes || "—"} />
-        </dl>
-      </section>
+        {overview.capabilities?.auto_send_followups === false && (
+          <p className="mt-3 text-xs text-subtle">
+            Automatic sending is off — every reminder is drafted for you and waits
+            in the approval queue.
+          </p>
+        )}
+      </div>
 
-      <FileImport onUpload={handleCsvUpload} isUploading={uploadingCsv} />
+      <div className="overflow-hidden rounded-2xl border border-border-default bg-surface shadow-card">
+        <div
+          data-print="hide"
+          role="tablist"
+          aria-label="RFQ sections"
+          className="flex gap-1 overflow-x-auto border-b border-border-default bg-surface-2/60 p-2"
+        >
+          {TABS.map((tab) => {
+            const isActive = tab.key === activeTab;
+            const count = counts[tab.key];
 
-      <Modal
-        isOpen={showQuoteForm}
-        onClose={() => {
-          setShowQuoteForm(false);
-          setEditingQuote(null);
-        }}
-        title={editingQuote ? "Edit Supplier Quote" : "Add Supplier Quote"}
-      >
-        <QuoteForm
-          initialValues={editingQuote || {}}
-          onSubmit={handleSaveQuote}
-          onCancel={() => {
-            setShowQuoteForm(false);
-            setEditingQuote(null);
-          }}
-          submitLabel={editingQuote ? "Update Quote" : "Add Quote"}
-          isSubmitting={savingQuote}
-        />
-      </Modal>
-
-      <ConfirmModal
-        isOpen={showDeleteModal}
-        onClose={() => {
-          setShowDeleteModal(false);
-          setSelectedQuote(null);
-        }}
-        onConfirm={confirmDeleteQuote}
-        title="Delete Supplier Quote"
-        description={`Are you sure you want to delete the quote from "${selectedQuote?.supplier_name}"?`}
-        confirmText="Delete"
-        isLoading={isDeleting}
-      />
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-content">
-              Supplier Quotes
-            </h2>
-
-            <p className="mt-1 text-sm text-muted">
-              {quotes.length > 0
-                ? "The lowest total price is highlighted."
-                : "No supplier quotes available yet."}
-            </p>
-          </div>
-
-          {quotes.length > 0 && (
-            <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-sm font-semibold text-muted">
-              {quotes.length}
-            </span>
-          )}
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => selectTab(tab.key)}
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
+                  isActive
+                    ? "bg-surface text-content shadow-sm"
+                    : "text-muted hover:text-content"
+                }`}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      isActive
+                        ? "bg-primary-soft text-primary-soft-fg"
+                        : "bg-surface-2 text-subtle"
+                    }`}
+                  >
+                    {formatNumber(count)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        <QuoteTable
-          quotes={quotes}
-          onEdit={handleEditQuote}
-          onDelete={handleDeleteQuote}
-        />
-      </section>
-    </div>
-  );
-}
+        <div className="p-5" role="tabpanel" aria-label={`${activeTab} section`}>
+          {activeTab === "suppliers" && (
+            <InvitationsTab
+              rfqId={rfq.id}
+              invitations={invitations}
+              onChanged={refresh}
+              focusInvitationId={focusInvitationId}
+            />
+          )}
 
-function DetailItem({ label, value }) {
-  return (
-    <div className="px-6 py-4">
-      <dt className="text-xs font-medium uppercase tracking-wider text-subtle">
-        {label}
-      </dt>
-      <dd className="mt-1 truncate text-sm font-medium text-content">{value}</dd>
+          {activeTab === "quotes" && (
+            <QuotesTab rfqId={rfq.id} quotes={quotes} onChanged={refresh} />
+          )}
+
+          {activeTab === "comparison" && (
+            <ComparisonTab
+              rfqId={rfq.id}
+              comparison={comparison}
+              quoteCount={quotes.length}
+              onChanged={refresh}
+            />
+          )}
+
+          {activeTab === "followups" && <FollowUpsTab rfqId={rfq.id} />}
+
+          {activeTab === "details" && (
+            <RFQDetailsTab rfq={rfq} onChanged={refresh} />
+          )}
+        </div>
+      </div>
+
+      {followups.length > 0 && (
+        <p className="text-xs text-subtle">
+          {formatNumber(followups.length)} message
+          {followups.length === 1 ? "" : "s"} logged against this RFQ — open the
+          Follow-ups tab for the full trail.
+        </p>
+      )}
     </div>
   );
 }

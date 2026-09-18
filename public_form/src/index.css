@@ -1,0 +1,247 @@
+@import "tailwindcss";
+
+/*
+ * ----------------------------------------------------------------------------
+ * Theming strategy — kept deliberately simple for a public, unauthenticated page
+ * ----------------------------------------------------------------------------
+ * The same *semantic* token structure as the buyer app
+ * (`../frontend/src/index.css`) is used here: raw values live in CSS custom
+ * properties and are surfaced to Tailwind via `@theme inline`, which generates
+ * utilities (bg-surface, text-content, …) that resolve to the live variable.
+ *
+ * Two differences, both intentional:
+ *  1. Light mode only. A supplier opening a link from an email should get one
+ *     predictable page; following the phone's dark setting would double the
+ *     surface area we have to make legible for a page that carries money.
+ *  2. The values here are the light half of the sibling palette, so a dark mode
+ *     can be added later by re-declaring the same variables under `.dark` (the
+ *     `dark` custom variant is already registered below) with no markup change.
+ * ----------------------------------------------------------------------------
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #f4f6fb;
+  --bg-gradient: radial-gradient(
+    1200px 600px at 100% -10%,
+    rgba(99, 102, 241, 0.08),
+    transparent 60%
+  );
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-hover: #f8fafc;
+  --surface-inset: #f8fafc;
+
+  /* Borders */
+  --border: #e6e9f0;
+  --border-strong: #cdd3e0;
+
+  /* Text — contrast checked against --surface (#fff):
+     content 16.1:1, muted 6.6:1, subtle 2.9:1 (decorative only). */
+  --content: #0f172a;
+  --content-muted: #51607a;
+  --content-subtle: #93a0b5;
+
+  /* Brand / primary — 4.9:1 on white, so it is safe for body-size links too. */
+  --primary: #5b5ef0;
+  --primary-hover: #4d50e0;
+  --primary-fg: #ffffff;
+  --primary-soft: #ececfe;
+  --primary-soft-fg: #4338ca;
+
+  /* Status — the *-fg pairings are the ones that reach 4.5:1 on their soft bg. */
+  --success: #059669;
+  --success-soft: #dcfce7;
+  --success-soft-fg: #047857;
+  --danger: #e11d48;
+  --danger-hover: #be123c;
+  --danger-soft: #ffe4e6;
+  --danger-soft-fg: #be123c;
+  --warning-soft: #fef3c7;
+  --warning-soft-fg: #b45309;
+
+  /* Effects */
+  --ring: rgba(91, 94, 240, 0.35);
+  --shadow-color: 220 40% 30%;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-border-default: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-content: var(--content);
+  --color-muted: var(--content-muted);
+  --color-subtle: var(--content-subtle);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-fg: var(--primary-soft-fg);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-fg: var(--success-soft-fg);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-fg: var(--danger-soft-fg);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-fg: var(--warning-soft-fg);
+
+  --color-ring: var(--ring);
+
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+
+  --shadow-card: 0 1px 2px 0 hsl(var(--shadow-color) / 0.06),
+    0 1px 3px 0 hsl(var(--shadow-color) / 0.05);
+  --shadow-elevated: 0 10px 30px -12px hsl(var(--shadow-color) / 0.25),
+    0 4px 12px -6px hsl(var(--shadow-color) / 0.12);
+  --shadow-pop: 0 24px 60px -20px hsl(var(--shadow-color) / 0.45);
+}
+
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Contact details and reference numbers are easier to compare in a tabular
+     face; enable it where it matters rather than globally. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* iOS Safari inflates text in landscape without this, which breaks the
+   single-column layout. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  color: var(--content);
+  background-color: var(--bg);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed;
+  /* Kill the grey flash iOS paints over tapped controls. */
+  -webkit-tap-highlight-color: transparent;
+  /* Never let a stray wide element create a sideways scroll on a phone. */
+  overflow-x: hidden;
+}
+
+/* Focus visibility is a hard requirement on this page: it is the only
+   navigation aid a keyboard or switch user has. Inputs/buttons therefore keep
+   a real ring instead of relying on the browser default. */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.invalid-field {
+  border-color: var(--danger);
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--primary-soft);
+  color: var(--primary-soft-fg);
+}
+
+/* Themed scrollbars (desktop only; no effect on mobile). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out;
+}
+
+/* Respect users who asked the OS to stop animating things. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Screen-reader-only text that still becomes visible when focused (skip link). */
+.sr-only-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

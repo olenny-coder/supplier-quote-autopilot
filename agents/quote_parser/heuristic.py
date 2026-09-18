@@ -181,4 +181,8 @@ def heuristic_parse(
 
     parsed.source = "heuristic"
 
+    # Note: classification is deliberately NOT set here. This layer extracts values;
+    # deciding whether the text is data, a question, or noise is
+    # `classify_text`'s job, and claiming the default would override it.
+
     return parsed

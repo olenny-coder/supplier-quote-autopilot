@@ -18,6 +18,41 @@ from decimal import InvalidOperation
 MONEY_RE = re.compile(r"(-?\d[\d,\s]*(?:\.\d+)?)")
 CURRENCY_RE = re.compile(r"\b([A-Z]{3})\b")
 
+#: Ordinary three-letter words that are NOT currencies but can appear uppercase
+#: (headings, acronyms, units of measure). Without this, "MOQ" or "PCS" would be
+#: accepted as a currency code.
+NON_CURRENCY_TOKENS = frozenset(
+    {
+        "MOQ", "PCS", "PC", "EA", "UOM", "RFQ", "PO", "VAT", "GST", "TBD", "EXP",
+        "INC", "LTD", "GMBH", "SPA", "SL", "BV", "AG", "LLC", "PLC", "CO", "SA",
+        "NRE", "COO", "FOB", "CIF", "EXW", "DDP", "DAP", "CFR", "CPT", "CIP",
+        "FCA", "FAS", "DPU", "DDU", "LDP", "ETA", "ETD", "PCS.", "NET",
+    }
+)
+
+
+def _currency_reference() -> tuple[dict[str, str], frozenset[str]]:
+    """Aliases and known codes, taken from the comparison engine's FX table.
+
+    Sourced from one place so the parser and the engine cannot disagree about which
+    codes exist. Imported defensively: ``comparison`` is a sibling package, and the
+    parser should still work (with a reduced alias set) if it is unavailable.
+    """
+
+    try:
+        from comparison.fx import CURRENCY_ALIASES as _aliases
+        from comparison.fx import DEFAULT_RATES
+
+        return dict(_aliases), frozenset(DEFAULT_RATES)
+    except Exception:  # noqa: BLE001 - degrade, never crash the parser
+        return (
+            {"$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR"},
+            frozenset({"USD", "EUR", "GBP", "JPY", "CNY", "INR"}),
+        )
+
+
+CURRENCY_ALIASES, KNOWN_CURRENCY_CODES = _currency_reference()
+
 #: "2 weeks", "3-4 weeks", "15 business days", "45 days", "6 wks"
 LEAD_TIME_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:-|to|–)?\s*(\d+(?:\.\d+)?)?\s*"
@@ -48,23 +83,37 @@ RELATIVE_VALIDITY_RE = re.compile(
 )
 
 #: Phrases that mean "there is no answer here" — never treated as values.
+#:
+#: Matched on WORD BOUNDARIES, not as bare substrings. Substring matching made
+#: "final" contain "na" and "analysis" contain "na", so a stated price like
+#: "final price 3.00" was silently discarded as a non-answer. Every entry here is
+#: a phrase a supplier would write to mean "not yet answered".
 NEGATIVE_PATTERNS = (
     "tbd",
     "t.b.d",
     "to be determined",
     "to be confirmed",
     "to be advised",
+    "to be discussed",
     "will advise",
     "will confirm",
+    "will revert",
     "not sure",
     "not yet",
     "n/a",
-    "na",
     "unknown",
     "pending",
     "checking with",
     "let you know",
     "get back to you",
+    "cannot confirm",
+    "unable to confirm",
+)
+
+#: Compiled once. ``\b`` around the phrase stops "na" matching inside "final".
+_NEGATIVE_RE = re.compile(
+    r"|".join(rf"\b{re.escape(pattern)}\b" for pattern in NEGATIVE_PATTERNS),
+    re.IGNORECASE,
 )
 
 #: Phrases that mean "explicitly none" — an ANSWER, not a gap (ForgeFlow rule).
@@ -95,9 +144,7 @@ def is_negative(text: str | None) -> bool:
     if not text:
         return False
 
-    lowered = str(text).strip().lower()
-
-    return any(pattern in lowered for pattern in NEGATIVE_PATTERNS)
+    return bool(_NEGATIVE_RE.search(str(text).strip()))
 
 
 def is_declined(text: str | None) -> bool:
@@ -182,14 +229,26 @@ def parse_int(value: object) -> int | None:
 
 # --------------------------------------------------------------------- currency
 def parse_currency(value: object) -> str | None:
-    """First 3-letter uppercase token, or a well-known symbol."""
+    """Extract an ISO-4217 code from a field value or free text.
+
+    Two guards, both learned from real failures:
+
+    * **A code must be uppercase in the source text.** Uppercasing the whole input
+      first turned ordinary words into currencies — "we try to ship quickly"
+      became the Turkish lira, which is in the FX table, so the comparison engine
+      cheerfully converted at the lira rate instead of reporting the quote as
+      incomparable. Currencies are written uppercase; prose is not.
+    * **A non-answer is not a currency.** "TBD" is three uppercase letters, so it
+      used to be returned as a code and then blew up later with the confusing
+      "No FX rate for 'TBD'" instead of being treated as a missing field.
+    """
 
     if value is None:
         return None
 
-    text = str(value).strip().upper()
+    text = str(value).strip()
 
-    if not text:
+    if not text or is_negative(text):
         return None
 
     symbols = {"$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR"}
@@ -198,12 +257,29 @@ def parse_currency(value: object) -> str | None:
         if symbol in text:
             return code
 
-    if len(text) == 3 and text.isalpha():
-        return text
+    # Only uppercase tokens count: scan the ORIGINAL text, do not uppercase it.
+    for token in re.findall(r"\b[A-Z]{3}\b", text):
+        if token in CURRENCY_ALIASES:
+            return CURRENCY_ALIASES[token]
+        if token not in NON_CURRENCY_TOKENS:
+            return token
 
-    match = CURRENCY_RE.search(text)
+    # A lowercase code is only accepted when the input IS the code ("usd", "eur",
+    # "inr"). Scanning free text case-insensitively would accept "TRY" from "we try
+    # to ship quickly" — a real currency in the FX table, so the engine would
+    # convert at the lira rate rather than reporting the quote as incomparable.
+    stripped = text.strip().strip(".,;:")
 
-    return match.group(1) if match else None
+    if len(stripped) == 3 and stripped.isalpha() and stripped.islower():
+        upper = stripped.upper()
+
+        if upper in CURRENCY_ALIASES:
+            return CURRENCY_ALIASES[upper]
+
+        if upper in KNOWN_CURRENCY_CODES and upper not in NON_CURRENCY_TOKENS:
+            return upper
+
+    return None
 
 
 # ------------------------------------------------------------------- lead time

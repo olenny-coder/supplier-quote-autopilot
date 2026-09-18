@@ -272,3 +272,108 @@ table {
 .animate-fade-in {
   animation: fade-in 0.18s ease-out;
 }
+
+/*
+ * ----------------------------------------------------------------------------
+ * Print
+ * ----------------------------------------------------------------------------
+ * "Print / save as PDF" on the comparison tab is a real deliverable: a buyer
+ * attaches the ranking, the recommendation and the audit trail to an internal
+ * approval pack. So the printed page keeps the comparison table and the
+ * recommendation, and drops everything that cannot be acted on paper — the
+ * header, navigation, footer, buttons, tab bar and the chat launcher.
+ * ----------------------------------------------------------------------------
+ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  /* Chrome, navigation and every interactive control. */
+  header,
+  footer,
+  nav,
+  button,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* The procurement assistant renders fixed-position, outside the app shell. */
+  section[aria-label="Procurement assistant chat"],
+  button[aria-label="Open procurement assistant"] {
+    display: none !important;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 0;
+    height: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #000000;
+  }
+
+  /* Printing always uses the light palette, even if the screen was in dark mode:
+     a dark-on-dark page wastes toner and is often unreadable. */
+  :root,
+  .dark {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #ffffff;
+    --surface-hover: #ffffff;
+    --surface-inset: #ffffff;
+    --border: #c9ced8;
+    --border-strong: #9aa2b1;
+    --content: #000000;
+    --content-muted: #2a2f3a;
+    --content-subtle: #4b5262;
+    --primary: #2f31b8;
+    --primary-hover: #2f31b8;
+    --primary-soft: #eef0ff;
+    --primary-soft-fg: #2f31b8;
+    --success-soft: #eafaf1;
+    --success-soft-fg: #0b6b45;
+    --danger: #a1112f;
+    --danger-soft: #fdeef1;
+    --danger-soft-fg: #a1112f;
+    --warning-soft: #fff6e0;
+    --warning-soft-fg: #8a5300;
+    --shadow-card: none;
+    --shadow-elevated: none;
+    --shadow-pop: none;
+  }
+
+  /* Stop horizontal scroll containers clipping wide tables on paper. */
+  .overflow-x-auto,
+  .overflow-y-auto {
+    overflow: visible !important;
+  }
+
+  table {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 9pt;
+  }
+
+  /* Repeat table headers on every page and never split a row across pages. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  img,
+  li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .theme-transition,
+  .theme-transition * {
+    transition: none !important;
+  }
+}

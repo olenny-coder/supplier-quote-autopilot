@@ -49,14 +49,27 @@ OTHER_MARKERS = (
 )
 
 #: Signals that commercial data is actually present.
+#:
+#: Deliberately excludes the bare word "price". A question that mentions pricing —
+#: "What volume should we price for?" — was previously classified as quote data, so
+#: a supplier waiting on the buyer got recorded as an ordinary response and then
+#: chased. Ambiguous markers only count as data when the text also carries a figure
+#: (see :func:`classify_text`).
 DATA_MARKERS = (
-    "price",
     "unit price",
-    "quotation",
-    "quote",
+    "price per",
+    "our price",
+    "quoted price",
+    "price is",
+    "price:",
+    "quotation attached",
+    "quotation is attached",
+    "please find our quote",
+    "attached quotation",
     "lead time",
     "moq",
-    "minimum",
+    "minimum order",
+    "minimum quantity",
     "payment terms",
     "incoterms",
     "fob",
@@ -66,12 +79,13 @@ DATA_MARKERS = (
     "valid until",
     "validity",
     "warranty",
-    "usd",
-    "eur",
-    "inr",
-    "per pc",
-    "/pc",
 )
+
+#: Words that only mean "data" when a number is also present. Without a figure,
+#: "price" and "quote" in a question are just the subject of the question.
+AMBIGUOUS_MARKERS = ("price", "quote", "quotation", "cost", "discount")
+
+DIGIT_RE = re.compile(r"\d")
 
 CURRENCY_OR_NUMBER_RE = re.compile(
     r"(?:[$€£¥₹]\s*\d)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:USD|EUR|GBP|INR|JPY|CNY|VND|THB))|"
@@ -93,8 +107,14 @@ def classify_text(raw_text: str | None) -> Classification:
     ):
         return "other"
 
-    has_data = any(marker in text for marker in DATA_MARKERS) or bool(
-        CURRENCY_OR_NUMBER_RE.search(raw_text)
+    has_figure = bool(CURRENCY_OR_NUMBER_RE.search(raw_text)) or bool(
+        DIGIT_RE.search(raw_text)
+    )
+
+    # An unambiguous data phrase counts on its own; an ambiguous one ("price")
+    # only counts alongside a figure, so a question about pricing stays a question.
+    has_data = any(marker in text for marker in DATA_MARKERS) or (
+        has_figure and any(marker in text for marker in AMBIGUOUS_MARKERS)
     )
 
     has_question = any(marker in text for marker in QUESTION_MARKERS)

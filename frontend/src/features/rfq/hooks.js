@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { getRFQById, getRFQs } from "./api";
+import { getRFQOverview, getRFQs } from "./api";
 
 /**
  * Load the list of RFQs. Encapsulates the fetch + loading + error-toast
@@ -17,7 +17,6 @@ export function useRFQs() {
       const data = await getRFQs();
       setRfqs(data);
     } catch (error) {
-      console.error(error);
       toast.error(error.message);
     } finally {
       setLoading(false);
@@ -32,22 +31,30 @@ export function useRFQs() {
 }
 
 /**
- * Load a single RFQ by id.
+ * Load the whole RFQ detail payload in one request.
+ *
+ * `setOverview` is exposed so callers that receive fresh data from a mutation
+ * (e.g. the comparison endpoint returning a new snapshot) can patch the page
+ * without a second round trip, and `refresh` pulls the authoritative version.
  */
-export function useRFQ(rfqId) {
-  const [rfq, setRfq] = useState(null);
+export function useRFQOverview(rfqId) {
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
     if (!rfqId) return;
 
     try {
       setLoading(true);
-      const data = await getRFQById(rfqId);
-      setRfq(data);
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message);
+      setError(null);
+
+      const data = await getRFQOverview(rfqId);
+
+      setOverview(data);
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -57,5 +64,5 @@ export function useRFQ(rfqId) {
     refresh();
   }, [refresh]);
 
-  return { rfq, loading, refresh };
+  return { overview, loading, error, refresh, setOverview };
 }

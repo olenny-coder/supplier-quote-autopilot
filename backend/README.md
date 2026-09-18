@@ -1,193 +1,367 @@
-# Backend — Supplier Quote Comparison Tool
+# Backend — Supplier Quote Autopilot
 
-FastAPI service that powers RFQ/quote management, CSV/PDF import, and a multi-agent procurement assistant. It owns persistence (PostgreSQL via SQLAlchemy), request validation (Pydantic v2), and all LLM orchestration (LangChain / LangGraph → OpenAI).
+FastAPI service that owns persistence, validation, the public supplier form's
+ingestion pipeline, the follow-up scheduler, and the comparison engine's persistence
+layer.
+
+Deployment (Neon + Render + Vercel), free-tier limits, and the LLM provider setup are
+covered in the [root README](../README.md). This document is about the backend itself.
 
 ---
 
 ## Tech stack
 
-| Concern            | Choice                                            |
-| ------------------ | ------------------------------------------------- |
-| Language           | Python 3.13                                       |
-| Web framework      | FastAPI + Uvicorn                                 |
-| ORM / DB           | SQLAlchemy 2.x · PostgreSQL (psycopg 3 driver)    |
-| Validation/config  | Pydantic v2 · pydantic-settings                   |
-| AI                 | LangChain 1 · LangGraph 1 · langchain-openai      |
-| Email              | Resend                                            |
-| Tooling            | uv (deps + runner) · pytest · Docker              |
+| Concern | Choice |
+| --- | --- |
+| Language | Python 3.13 |
+| Web framework | FastAPI + Uvicorn |
+| ORM / DB | SQLAlchemy 2 (sync) · PostgreSQL via `psycopg` 3 |
+| Migrations | Alembic |
+| Validation / config | Pydantic v2 · pydantic-settings |
+| Auth | PBKDF2 password hashing · HS256 JWT (`PyJWT`) |
+| LLM | Any OpenAI-compatible endpoint via a hand-written `httpx` client |
+| Email | HTTPS APIs only — Resend · SendGrid · Mailgun · Brevo. **No SMTP.** |
+| Storage | Local filesystem · any S3-compatible store (`boto3`, imported lazily) |
+| Chat assistant | LangChain 1 · LangGraph 1 (inherited from the base codebase) |
+| Tooling | uv · pytest · Docker |
 
 ---
 
-## Architecture
-
-The app is organized as **feature slices** under `app/features/`, a shared **core**, and an **AI subsystem** under `app/ai/`. Routers stay thin; business logic lives in service classes; the domain layer raises framework-agnostic exceptions that are translated to HTTP at the edge.
+## Layout
 
 ```
-app/
-├── main.py                  # FastAPI app: lifespan (create tables), CORS, routers, /health
+backend/
+├── app/
+│   ├── main.py               app wiring, lifespan, /health, /files proxy
+│   ├── models.py             imports every model so create_all + Alembic see them
+│   │
+│   ├── core/
+│   │   ├── config.py         every setting, one place; no os.environ elsewhere
+│   │   ├── database.py       engine, SessionLocal, get_db, warm_up
+│   │   ├── dependencies.py   DBSession, CurrentUser
+│   │   ├── exceptions.py     domain error hierarchy -> JSON at the edge
+│   │   ├── security.py       PBKDF2, JWT, invitation tokens
+│   │   ├── llm_client.py     OpenAI-compatible client: throttle, retry, JSON repair
+│   │   ├── email.py          HTTPS transactional email, four providers + console
+│   │   ├── storage.py        local + S3 backends, traversal-safe keys
+│   │   ├── rate_limit.py     honeypot, sliding window, optional CAPTCHA
+│   │   └── mixins.py         TimestampMixin, utcnow, RFQ number generator
+│   │
+│   ├── features/             one slice per domain: model · schema · service · router
+│   │   ├── auth/             buyer accounts and sessions
+│   │   ├── rfq/              RFQs; deadline, required-field contract, weights
+│   │   ├── supplier/         supplier directory + response statistics
+│   │   ├── invitation/       tokenized form links, status derivation, resend
+│   │   ├── quote/            quotes from every source + CSV/PDF importers
+│   │   ├── attachment/       validated uploads, claim-by-key
+│   │   ├── public_form/      supplier-facing, token-authenticated ingestion
+│   │   ├── followup/         scheduler, snapshots, drafts, approvals, log
+│   │   ├── comparison/       scoring snapshots, narrative, approvals, CSV export
+│   │   ├── dashboard/        workspace roll-up
+│   │   └── chat/             conversational assistant (from the base codebase)
+│   │
+│   └── ai/
+│       ├── llm.py            LangChain factory, now provider-agnostic
+│       ├── completer.py      bridges the pure agents to the LLM client
+│       ├── registry.py       agent name -> callable
+│       └── agents/           rfq_assistant · procurement_assistant ·
+│                             procurement_orchestrator · supplier_mailer ·
+│                             quote_extraction
 │
-├── core/
-│   ├── config.py            # Settings (env-driven) + cached settings singleton
-│   ├── database.py          # engine, SessionLocal, Base, get_db() dependency
-│   ├── dependencies.py      # DBSession = Annotated[Session, Depends(get_db)]
-│   └── exceptions.py        # AppError hierarchy + FastAPI exception handlers
-│
-├── features/
-│   ├── rfq/                 # router · service · model · schema
-│   ├── quote/               # router · service · model · schema
-│   │   └── importers/       # CSVImportService · PDFImportService
-│   └── chat/                # router · service · schema · mailer (Resend wrapper)
-│
-└── ai/
-    ├── llm.py               # get_llm() — single LLM factory (model, temperature, structured output)
-    ├── registry.py          # name → agent callable; get_agent() / available_agents()
-    └── agents/
-        ├── rfq_assistant/          # Q&A scoped to a single RFQ
-        ├── procurement_assistant/  # Q&A across the whole workspace (catalog formatting helpers)
-        ├── procurement_orchestrator/  # entry point for site-wide chat; routes Q&A vs. email drafting
-        ├── supplier_mailer/        # drafts a subject+body email (does not send)
-        └── quote_extraction/       # LangGraph graph: PDF bytes → structured quotes
+├── alembic/                  migrations (env.py reads DATABASE_URL_DIRECT)
+├── scripts/                  seed_demo.py · list_routes.py
+└── tests/                    pytest suite, offline and deterministic
 ```
 
-### Layering rules
+The two **pure** domain packages live outside this directory, as siblings, so they
+carry no web or database dependency:
 
-- **Routers** (`*/router.py`) only parse/validate input and delegate to a service. They convert ORM models to response schemas where a computed field needs extra context (see `quote/router.py::build_quote_response`).
-- **Services** (`*/service.py`) hold all DB access and business logic, and raise domain errors (`NotFoundError`, `BadRequestError`, `ExternalServiceError`) — never `HTTPException`.
-- **`core/exceptions.py`** maps those domain errors to JSON responses, keeping the service layer HTTP-agnostic.
-- **AI agents** never touch the database. The chat service gathers `(rfq, quotes)` data and hands it to an agent as plain context; agents only build prompts and call the LLM.
+```
+../agents/quote_parser/       supplier submission -> typed quote + completeness
+../agents/followup/           invitation snapshot -> chase / ask / escalate
+../comparison/                FX, Incoterms, units, landed cost, scoring, export
+```
+
+`app/__init__.py` puts the repository root on `sys.path`, so `import comparison` and
+`import agents.quote_parser` work under `uv run`, Docker, Render, and pytest with no
+`PYTHONPATH` configuration from an operator.
+
+---
+
+## Layering rules
+
+- **Routers** parse and validate, then delegate. They never touch the session directly
+  and never contain business logic.
+- **Services** own DB access and business rules, and raise domain errors
+  (`NotFoundError`, `BadRequestError`, `ConflictError`, `InvitationExpiredError`,
+  `ExternalServiceError`) — never `HTTPException`.
+- **`core/exceptions.py`** translates those to HTTP, so the domain stays
+  framework-agnostic. `RequestValidationError` is flattened into a single readable
+  `detail` string because the API client renders `detail` verbatim.
+- **`agents/` and `comparison/` do no I/O.** An LLM is injected as a plain `async`
+  callable and every path has a deterministic fallback. That is what makes the policy
+  and the engine unit-testable without a database, a server, or a network.
+- **Tenancy is enforced in the service, not the router.** Every lookup takes
+  `user_id` and returns 404 — not 403 — for another tenant's row.
+
+---
+
+## Database
+
+Sync SQLAlchemy with `psycopg` 3. The base codebase was sync, and rewriting every slice
+to async would have been a rewrite rather than an extension; the genuinely
+latency-bound work (LLM, email, storage) *is* async. See INTEGRATION_PLAN.md
+assumption A1.
+
+```bash
+# Local: DATABASE_URL_DIRECT is unset and falls back to DATABASE_URL.
+uv run alembic upgrade head
+uv run alembic revision --autogenerate -m "add something"
+uv run alembic check          # fails if the models and the migration disagree
+uv run alembic downgrade -1
+```
+
+**Two connection strings, deliberately.** On Neon:
+
+| Variable | Used by | Shape |
+| --- | --- | --- |
+| `DATABASE_URL` | the app | hostname contains `-pooler` (PgBouncer, transaction mode) |
+| `DATABASE_URL_DIRECT` | Alembic only | no `-pooler` |
+
+Alembic's DDL and its `alembic_version` bookkeeping do not behave reliably through
+transaction pooling. Locally, `DATABASE_URL_DIRECT` is empty and everything uses one
+URL.
+
+**`create_all` is kept, and is not the source of truth.** It runs at startup so a first
+boot on a fresh database works with no manual step. It only ever *adds* missing tables
+and never alters or drops, so it cannot conflict with Alembic. Once you have
+migrations, Alembic is the authority — and CI runs `alembic check` on every push.
+
+Pool settings are tuned for Neon's scale-to-zero: `pool_pre_ping=True` so a socket the
+compute closed while idle is never handed to a request, and
+`pool_recycle=DB_POOL_RECYCLE_SECONDS` (300 s) below Neon's idle timeout.
+
+---
+
+## Data model
+
+```
+User ──┬── RFQ ──┬── Invitation ──┬── SupplierQuote
+       │         │                └── FollowUp
+       │         ├── SupplierQuote
+       │         ├── FollowUp
+       │         └── Comparison ── Approval
+       └── Supplier ──┬── Invitation
+                      └── SupplierQuote
+```
+
+| Table | Purpose | Notes |
+| --- | --- | --- |
+| `users` | Buyer accounts. **The tenant boundary.** | Single-tenant: no team/role model. |
+| `suppliers` | Reusable supplier directory. | Unique per `(user_id, contact_email)`. `risk_rating` feeds the score. |
+| `rfqs` | The request. | Carries `deadline`, `required_fields` (the completeness contract), `scoring_weights`, `currency`, `incoterms`. |
+| `invitations` | One tokenized link per (RFQ, supplier). | Unique per pair. Tracks `status`, `sent_at`, `responded_at`, `view_count`, `reminder_count`. |
+| `supplier_quotes` | Quotes from any source. | Raw submitted figures are **never overwritten**; normalized results live in separate `normalized_*` and `cost_breakdown` columns. |
+| `follow_ups` | Every message, sent or pending. | The communication log. `kind` distinguishes no-response / incomplete / deadline / manual. |
+| `comparisons` | Immutable scoring snapshots. | Stores the weights, FX rates, per-quote results and rationale used, so a past recommendation stays explicable. |
+| `approvals` | Human award decisions. | Records the recommendation at decision time, whether it was overridden, and the buyer's reason. |
+
+All new columns added on top of the base codebase are nullable or defaulted, so the
+original rows and the existing importer paths keep working.
+
+---
+
+## The `required_fields` contract
+
+An RFQ declares which fields a quote must carry to count as complete. That list is the
+single input to completeness checking, and therefore to what the follow-up engine is
+allowed to ask for. Defaults:
+
+```
+unit_price · currency · lead_time · moq · payment_terms · incoterms · validity_date
+```
+
+The rules (`agents/quote_parser/completeness.py`):
+
+- A field is answered when it carries a concrete value.
+- **An explicit "none" is an answer.** "No MOQ at this stage" is complete.
+- **"TBD" is not.** Neither is a promise to send something later.
+- A field the buyer never required is never reported as missing.
+- A `blocking_question` short-circuits the whole report: the summary says to resolve the
+  supplier's question rather than send a reminder.
 
 ---
 
 ## AI subsystem
 
-### LLM factory — `app/ai/llm.py`
+Two paths, on purpose.
 
-A single `get_llm()` builds every chat model so model/provider config lives in one place. Default model is `gpt-4.1-mini` at `temperature=0`. Models are created **lazily** by callers (not at import time), so the app and tests import cleanly without an `OPENAI_API_KEY`. Pass `structured_output=<PydanticModel>` to bind a structured-output schema.
+**New autopilot features** (`quote parsing`, `follow-up drafting`, comparison
+narrative) use `core/llm_client.py` — a small `httpx` client with request spacing,
+bounded concurrency, retry with backoff honouring `Retry-After`, fail-fast on
+non-retryable errors, and JSON recovery for the ways small free models wrap objects in
+prose or fences. `ai/completer.py` adapts it to the plain callable that
+`agents/quote_parser` and `agents/followup` accept.
 
-### Agent registry — `app/ai/registry.py`
+**The pre-existing chat assistant** (`rfq_assistant`, `procurement_assistant`,
+`procurement_orchestrator`, `supplier_mailer`, `quote_extraction`) still uses
+LangChain/LangGraph. `ai/llm.py` was changed to read `LLM_BASE_URL` / `LLM_API_KEY` /
+`LLM_MODEL` and pass `base_url` through, so it works against Groq, OpenRouter and
+Gemini without touching the agents.
 
-Agents are registered by name and resolved through `get_agent(name)`, so callers (and the orchestrator) route by name instead of importing each agent module:
+Every LLM call site catches the unavailable error and falls back:
 
-| Name                       | Entry point          | Role                                                                 |
-| -------------------------- | -------------------- | ------------------------------------------------------------------- |
-| `rfq_assistant`            | `answer_question`    | Answers questions about a **single** RFQ.                           |
-| `procurement_assistant`    | `answer_question`    | Answers questions across the **whole** workspace, with history.    |
-| `procurement_orchestrator` | `run`                | Site-wide chat entry point; decides between answering and emailing.|
-| `supplier_mailer`          | `draft_email`        | Drafts a supplier email (subject + body) from buyer intent.        |
+| Feature | Fallback when no key, or the quota is spent |
+| --- | --- |
+| Quote parsing | Deterministic labelled-line extraction (`agents/quote_parser/heuristic.py`) |
+| Follow-up drafting | Deterministic templates that follow the same writing rules |
+| Comparison narrative | `build_rationale()` — generated from the scoring run, always present |
 
-The `quote_extraction` LangGraph graph is invoked directly by the PDF importer rather than via the registry.
+The test suite runs with `LLM_API_KEY` empty, so the fallbacks are what is exercised by
+default rather than an afterthought.
 
-### Chat orchestration flow
+---
 
-`POST /chat` → `ChatService.answer_global` → `procurement_orchestrator.run`:
+## Email
 
-1. The orchestrator is given the full RFQ/quote catalog as grounded context plus the running conversation.
-2. It is bound to a single tool, `DraftSupplierEmail`. If the model decides to email a supplier (and already has the recipient address), the tool call is **dispatched manually** to `supplier_mailer.draft_email`.
-3. Drafting produces a subject/body but **sends nothing** — the draft is returned as `pending_email` for the buyer to confirm.
-4. On confirmation, `POST /chat/email/send` calls `chat/mailer.py`, which sends via Resend (off the event loop). Without `RESEND_API_KEY` it raises a clear `ExternalServiceError`.
+`core/email.py` has **no SMTP code path**. Render's free tier blocks outbound ports
+25/465/587, so an SMTP client would fail at connect time in production. Providers:
 
-### PDF extraction
+```
+console    logs the message, sends nothing (local default)
+resend     https://api.resend.com/emails
+sendgrid   https://api.sendgrid.com/v3/mail/send
+mailgun    https://api.mailgun.net/v3/<domain>/messages   (domain from MAIL_FROM)
+brevo      https://api.brevo.com/v3/smtp/email
+```
 
-`PDFImportService` feeds the PDF bytes (base64) into the `quote_extraction` LangGraph graph, which calls the vision-capable LLM with a structured-output schema (`ExtractedQuotes`) and returns a list of quotes to persist.
+A test and a CI step both assert that `smtplib` never appears in the source tree.
+
+Failures are handled where they happen, not by aborting the caller:
+
+- An invitation whose email fails is still created, its token stays valid, and the
+  failure is recorded on the `FollowUp` row. The buyer sees it and can resend.
+- A batch send replaces individual failures with a `failed` result, so one bad address
+  does not stop the rest of a sweep.
+
+---
+
+## Storage
+
+`STORAGE_BACKEND=local|s3`. Both backends implement the same three methods
+(`save`, `read`, `delete`) plus `url_for`.
+
+Security properties that matter, because uploads come from an unauthenticated public
+endpoint:
+
+- Size, extension and content-type are validated **before** anything is written, and
+  `text/html` is always rejected.
+- Storage keys are generated (`invitations/<id>/<uuid><ext>`). The supplier's filename
+  is kept only as display metadata, so path traversal is impossible by construction —
+  and `LocalStorage` additionally resolves and bounds-checks every path.
+- A submission references files by key, and `AttachmentService.resolve` verifies each
+  key was issued to *that* invitation. Otherwise one supplier could attach another's
+  file.
+
+`boto3` is imported lazily, so the local backend and the test suite never load it —
+which matters at 512 MB of RAM.
+
+---
+
+## Scheduler
+
+`features/followup/scheduler.py` runs `run_scheduler` on an interval from inside the web
+process, started in the lifespan and cancelled on shutdown. A plain `asyncio` task, not
+APScheduler: one dependency fewer for a single fixed interval.
+
+Render's free tier has no always-on worker, so the same work is exposed at
+`POST /internal/scheduler/tick` for an external free cron. Both paths call the same
+function, and overlapping runs are safe: `find_recent_duplicate` suppresses a second
+draft of the same kind for the same invitation, and the reminder counter is incremented
+in the same transaction as the send.
+
+The tick endpoint requires `SCHEDULER_SECRET` and returns **403 while it is unset**. An
+unauthenticated endpoint that sends email is not an acceptable default, even in
+development.
 
 ---
 
 ## Running locally
 
-### Prerequisites
-
-- Python 3.13 and [uv](https://docs.astral.sh/uv/)
-- A running PostgreSQL instance
-
-### 1. Install dependencies
-
 ```bash
-uv sync
+uv sync --all-groups
+cp .env.example .env            # DATABASE_URL already points at localhost:5432
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. Configure `backend/.env`
+| URL | |
+| --- | --- |
+| API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| ReDoc | http://localhost:8000/redoc |
+| Health | http://localhost:8000/health |
 
-```env
-DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/supplier_quote_db
+`/health` always returns 200 with the truth in the body — database, storage, LLM,
+email, and scheduler state — so an uptime ping counts a cold-but-working service as up
+while a human can still see what is unreachable.
 
-OPENAI_API_KEY=        # required for chat + PDF import
-RESEND_API_KEY=        # required to send supplier emails
-MAIL_FROM=Procurement Assistant <onboarding@resend.dev>
-```
-
-See [.env.example](.env.example). `OPENAI_API_KEY`/`RESEND_API_KEY` may be left blank to run the CRUD/CSV features; AI/email calls will surface a clear error until set.
-
-### 3. Provision the database
-
-Create a database named `supplier_quote_db` on your local PostgreSQL, or start one with Docker:
+A local Postgres:
 
 ```bash
-docker run --name supplier-quote-postgres-local \
-  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=supplier_quote_db \
+docker run --name sqa-postgres -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=supplier_quote_db \
   -p 5432:5432 -d postgres:17
 ```
 
-Tables are created automatically on startup from SQLAlchemy metadata — **no migration tool is configured.** Schema changes require recreating the tables.
+---
 
-### 4. Start the server
+## Testing
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run pytest -q
+uv run pytest --cov=app --cov-report=term-missing
+uv run pytest tests/test_acceptance.py -q
 ```
 
-- API: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+The suite needs **no services**: a temporary SQLite database, `EMAIL_PROVIDER=console`,
+and no LLM key. `tests/conftest.py` pins the environment *before* `app.core.config` is
+imported, because settings are read once at import time — a test that changed them
+afterwards would be testing a different application than the one that boots in
+production.
+
+| File | Covers |
+| --- | --- |
+| `test_acceptance.py` | The whole product through the HTTP API, end to end. |
+| `test_regressions.py` | Bugs found in development, with the failure mode in each docstring. |
+| `test_comparison_engine.py` | FX, Incoterms rebasing, units, landed cost, scoring, ranking, CSV. |
+| `test_quote_parser.py` | Grounding, layer precedence, normalization, completeness rules. |
+| `test_followup_policy.py` | Every branch of the decision order, caps, escalate-don't-chase. |
+| `test_transports.py` | Email providers, LLM retry/backoff, and no-SMTP enforcement. |
+| `test_rfq.py` · `test_quote.py` · `test_chat.py` · `test_csv_import.py` | Kept from the base codebase, unmodified. |
 
 ---
 
-## API reference
+## Scripts
 
-Interactive docs live at `/docs`. Summary:
+```bash
+uv run python -m scripts.seed_demo --reset --run-scheduler   # demo workspace
+uv run python -m scripts.list_routes                         # live route table (Markdown)
+```
 
-### RFQs — `app/features/rfq`
-
-| Method | Endpoint      | Description                          |
-| ------ | ------------- | ------------------------------------ |
-| GET    | `/rfqs`       | List all RFQs (newest first).        |
-| POST   | `/rfqs`       | Create an RFQ.                        |
-| GET    | `/rfqs/{id}`  | Get a single RFQ.                    |
-| PUT    | `/rfqs/{id}`  | Update an RFQ (partial).             |
-| DELETE | `/rfqs/{id}`  | Delete an RFQ (cascades to quotes).  |
-
-### Supplier quotes — `app/features/quote`
-
-| Method | Endpoint                     | Description                                       |
-| ------ | ---------------------------- | ------------------------------------------------- |
-| GET    | `/rfqs/{id}/quotes`          | List quotes for an RFQ (cheapest unit price first).|
-| POST   | `/rfqs/{id}/quotes`          | Create a quote.                                   |
-| POST   | `/rfqs/{id}/quotes/import`   | Import quotes from a CSV or PDF file (≤ 2 MB).    |
-| PUT    | `/quotes/{id}`               | Update a quote (partial).                         |
-| DELETE | `/quotes/{id}`               | Delete a quote.                                   |
-
-Quote responses include a computed `total_price` (`unit_price × the RFQ's quantity`); comparison/ranking is based on it.
-
-### Chat — `app/features/chat`
-
-| Method | Endpoint              | Description                                                              |
-| ------ | --------------------- | ----------------------------------------------------------------------- |
-| POST   | `/chat`               | Site-wide assistant (whole catalog + history); may return `pending_email`.|
-| POST   | `/chat/email/send`    | Send a supplier email the buyer confirmed in the chat.                   |
-| POST   | `/rfqs/{id}/chat`     | Ask about a single RFQ.                                                  |
-
-### Misc
-
-| Method | Endpoint   | Description           |
-| ------ | ---------- | --------------------- |
-| GET    | `/health`  | Liveness check.       |
+`seed_demo` drives the real services — including the public-form ingestion pipeline — so
+the seeded quotes have genuine normalized costs, completeness assessments and risk
+flags rather than values a fixture made up.
 
 ---
 
 ## File import
 
-A single endpoint (`/rfqs/{id}/quotes/import`) accepts both formats and dispatches by extension. Max upload size is **2 MB**. Each importer returns `{ imported, failed, errors }`; valid rows are committed even when others fail.
-
-### CSV format
+`POST /rfqs/{id}/quotes/import` accepts CSV or PDF (dispatched by extension, max 2 MB)
+and returns `{imported, failed, errors}`. Valid rows are committed even when others fail.
+After importing, every new quote is assessed for completeness and the comparison is
+recomputed, so an imported quote does not skip the pipeline that a form submission goes
+through.
 
 ```csv
 supplier_name,unit_price,currency,lead_time,payment_terms,remarks
@@ -195,56 +369,40 @@ ABC Metals,10.50,USD,7,Net 30,High quality
 XYZ Industries,9.75,USD,10,Advance Payment,Fast delivery
 ```
 
-### PDF
-
-PDFs are parsed by the `quote_extraction` agent (vision LLM, structured output) — no fixed template required, but extraction quality depends on the document. Requires `OPENAI_API_KEY`.
-
----
-
-## Data model
-
-```
-RFQ (rfqs)                         SupplierQuote (supplier_quotes)
-├── id                             ├── id
-├── item_name                      ├── rfq_id  ─── FK → rfqs.id (ON DELETE CASCADE)
-├── specification                  ├── supplier_name
-├── quantity                       ├── unit_price   (Numeric 12,2)
-├── delivery_expectation (date)    ├── currency
-├── notes (nullable)               ├── lead_time    (days)
-└── quotes ──┐ 1─*                 ├── payment_terms (nullable)
-             └──────────────────▶  └── remarks       (nullable)
-```
-
-`total_price` is **not stored** — it is computed per response as `unit_price × rfq.quantity`.
+PDFs are read by the vision-capable LangGraph agent, so extraction quality depends on
+the document and requires a configured LLM. Without one, the import reports the
+provider error rather than silently importing nothing.
 
 ---
 
-## Testing
+## Configuration
 
-```bash
-uv run pytest
-```
+Every setting is defined in `app/core/config.py` with a default and a comment. The
+annotated list — including which are required in production — is in the
+[root README §9](../README.md#9-configuration-reference) and
+[.env.example](.env.example).
 
-Tests run against an **in-memory SQLite** database (`tests/conftest.py`) with a fresh schema per test, so no PostgreSQL or API keys are required. Suites: `test_rfq.py`, `test_quote.py`, `test_csv_import.py`, `test_chat.py`.
-
----
-
-## Configuration reference
-
-All settings are loaded from the environment (and `backend/.env`) via `app/core/config.py`:
-
-| Setting           | Default                                              | Notes                                              |
-| ----------------- | ---------------------------------------------------- | -------------------------------------------------- |
-| `APP_NAME`        | `Supplier Quote Comparison Tool`                     | Shown in OpenAPI metadata.                         |
-| `DATABASE_URL`    | — (required)                                          | SQLAlchemy URL.                                    |
-| `OPENAI_API_KEY`  | `""`                                                 | Needed for chat + PDF import.                      |
-| `RESEND_API_KEY`  | `""`                                                 | Needed to send supplier emails.                    |
-| `MAIL_FROM`       | `Procurement Assistant <onboarding@resend.dev>`      | From-address for emails.                           |
-| `ALLOWED_ORIGINS` | `["*"]`                                               | Comma-separated origins for CORS.                  |
+`ENV=production` changes three behaviours: exception details are no longer echoed in
+500 responses, insecure defaults are logged loudly at startup, and the app warns when
+`SECRET_KEY` is still the development placeholder, when `ALLOWED_ORIGINS` is `*`, when
+`STORAGE_BACKEND=local` (lost on the next deploy), when `EMAIL_PROVIDER=console` (no
+email is sent), and when `SCHEDULER_SECRET` is unset (no cron-driven follow-ups).
 
 ---
 
 ## Extending
 
-- **Add a feature slice:** create `app/features/<name>/` with `router.py`, `service.py`, `schema.py`, and (if persisted) `model.py`; register the router in `app/main.py`. Raise domain errors from the service, not `HTTPException`.
-- **Add an AI agent:** create `app/ai/agents/<name>/`, expose an entry-point callable, register it in `app/ai/registry.py`, and build its model through `get_llm()`.
+**A feature slice.** Create `app/features/<name>/` with `model.py`, `schema.py`,
+`service.py`, `router.py`; add the model to `app/models.py`; register the router in
+`app/main.py`; generate a migration. Raise domain errors from the service.
+
+**A domain agent.** Put the logic in `../agents/<name>/` with no I/O: schemas,
+prompts, and pure functions that accept an optional `async` LLM callable. Add a
+deterministic fallback. Then expose it through a service in `app/features/`, which is
+where the database and the LLM client live.
+
+**An email provider.** Add one `_send_<provider>` function and one `PROVIDERS` entry in
+`core/email.py`. HTTPS only.
+
+**An S3-compatible store.** Nothing to do — `STORAGE_BACKEND=s3` with the `S3_*`
+variables works with R2, B2, Neon Object Storage, MinIO and AWS alike.

@@ -212,9 +212,17 @@ def build_missing_fields_email(
 
     if len(requested_labels) == 1:
         ask = f"we are still missing the {requested_labels[0]}"
+        closing = (
+            "Everything else on your submission is complete — this is the only item "
+            "we still need."
+        )
     else:
         listed = ", ".join(requested_labels[:-1]) + f" and {requested_labels[-1]}"
         ask = f"we are still missing the {listed}"
+        closing = (
+            "Everything else on your submission is complete — these are the only "
+            "items we still need."
+        )
 
     lines = [
         _greeting(contact_name, supplier_name),
@@ -226,8 +234,7 @@ def build_missing_fields_email(
         "You can add it through the same link:",
         form_link,
         "",
-        "Everything else on your submission is complete — this is the only item we "
-        "still need.",
+        closing,
         "",
         _signature(buyer_company, buyer_contact_name),
     ]

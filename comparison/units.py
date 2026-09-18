@@ -56,6 +56,34 @@ PACKABLE_UNITS = {"box", "pallet", "roll"}
 #: Units that count individual items.
 DISCRETE_UNITS = {"pcs", "set", "pair", "sheet"}
 
+#: Physical size of one unit, expressed in its measurement group's base unit
+#: (mass -> kg, length -> m, volume -> l, area -> m2, time -> h). Group bases
+#: themselves are 1.0.
+#:
+#: Used to convert a *price* between units as ``size(target) / size(quoted)``:
+#: 1 t = 1000 kg, so a per-tonne price becomes a per-kg price by dividing by 1000.
+UNIT_SIZE_IN_BASE: dict[str, float] = {
+    # mass, base kg
+    "kg": 1.0,
+    "g": 0.001,
+    "t": 1000.0,
+    "lb": 0.45359237,
+    # length, base m
+    "m": 1.0,
+    "cm": 0.01,
+    "mm": 0.001,
+    "ft": 0.3048,
+    "in": 0.0254,
+    # volume, base l
+    "l": 1.0,
+    "ml": 0.001,
+    # area, base m2
+    "sqm": 1.0,
+    # time, base hour
+    "hour": 1.0,
+    "day": 24.0,
+}
+
 #: "box of 100", "carton/50", "pack 250"
 _PACK_RE = re.compile(
     r"\b(?:box|carton|ctn|pack|bag|drum|pallet|roll|reel)\s*(?:of|/|x|\*)?\s*(\d+)\b",
@@ -175,29 +203,21 @@ def price_basis_multiplier(
         )
 
     # Same measurement group but a different unit (kg vs t, m vs cm, ...).
-    factors = {
-        ("t", "kg"): 1000.0,
-        ("lb", "kg"): 0.45359237,
-        ("g", "kg"): 0.001,
-        ("m", "cm"): 100.0,
-        ("m", "mm"): 1000.0,
-        ("ft", "m"): 0.3048,
-        ("in", "m"): 0.0254,
-        ("l", "ml"): 1000.0,
-    }
+    #
+    # The multiplier converts a PRICE, not a quantity, and those move in opposite
+    # directions: 1 tonne is 1000 kg, so a per-tonne price is 1/1000 of a per-kg
+    # price. Expressing each unit as its physical size in the group's base unit and
+    # dividing makes that impossible to get backwards — size(target) / size(quoted),
+    # not size(quoted) / size(target). Getting this wrong on a mass unit is a 10^6
+    # error in the landed cost, which is enough to invert an award.
+    quoted_size = UNIT_SIZE_IN_BASE.get(quoted.canonical)
+    target_size = UNIT_SIZE_IN_BASE.get(target.canonical)
 
-    direct = factors.get((quoted.canonical, target.canonical))
-    if direct is not None:
-        return direct, (
-            f"Converted from '{quoted.describe()}' to '{target.describe()}' "
-            f"using a fixed factor of {direct}."
-        )
-
-    inverse = factors.get((target.canonical, quoted.canonical))
-    if inverse:
-        return 1.0 / inverse, (
-            f"Converted from '{quoted.describe()}' to '{target.describe()}' "
-            f"using a fixed factor of {1.0 / inverse:.6g}."
+    if quoted_size and target_size:
+        multiplier = target_size / quoted_size
+        return multiplier, (
+            f"Converted a per-{quoted.canonical} price to a per-{target.canonical} "
+            f"price using a fixed factor of {multiplier:.6g}."
         )
 
     return 1.0, (

@@ -66,7 +66,7 @@ def build_rationale(comparison: ComparisonResult) -> str:
         f"{len(ranked)} of {len(comparison.results)} quote(s) were comparable. "
         f"Ranking is a weighted score over price (relative to the other quotes in "
         f"this batch), lead time, payment terms, MOQ, validity, warranty, and "
-        f"supplier risk."
+        f"supplier risk. Complete quotes rank ahead of incomplete ones."
     )
 
     lines.append(
@@ -83,17 +83,35 @@ def build_rationale(comparison: ComparisonResult) -> str:
             f"(factor {winner.breakdown.incoterms_factor})."
         )
 
+    # Make the ordering rule visible when it actually changed the outcome, so a
+    # buyer is never puzzled by a pricier recommendation.
+    outranked = [
+        result
+        for result in ranked[1:]
+        if result.completeness == "incomplete"
+        and result.total_base is not None
+        and winner.total_base is not None
+        and result.total_base < winner.total_base
+    ]
+
+    if outranked:
+        names = ", ".join(result.supplier_name for result in outranked)
+        lines.append(
+            f"{names} quoted a lower landed cost but is incomplete, so it ranks "
+            f"below {winner.supplier_name} — the missing details would change that "
+            f"comparison, so chase them before treating it as settled."
+        )
+
     if winner.completeness == "incomplete":
         lines.append(
-            "**Caution:** the leading quote is incomplete — it is still missing "
-            f"{', '.join(winner.missing_fields) or 'required fields'}. Chase those "
-            "before treating this as final."
+            "**Caution:** every comparable quote is incomplete, so this ranking is "
+            f"provisional. The leading quote is still missing "
+            f"{', '.join(winner.missing_fields) or 'required fields'}."
         )
 
     if len(ranked) > 1:
         runner_up = ranked[1]
         cost_gap = float(runner_up.total_base or 0) - float(winner.total_base or 0)
-        score_gap = winner.composite_score - runner_up.composite_score
 
         lines.append(
             f"{runner_up.supplier_name} is next at {runner_up.composite_score:.1f}/100 "
@@ -108,7 +126,13 @@ def build_rationale(comparison: ComparisonResult) -> str:
                 f"({money(float(third.total_base or 0), currency)} landed)."
             )
 
-        if score_gap < 3.0:
+        # Only meaningful when both quotes are equally complete. Otherwise the
+        # ranking was decided by the completeness rule, not by the score gap — and
+        # the leading quote's score can legitimately be the *lower* of the two.
+        same_basis = winner.completeness == runner_up.completeness
+        score_gap = abs(winner.composite_score - runner_up.composite_score)
+
+        if same_basis and score_gap < 3.0:
             lines.append(
                 f"The top two are within {score_gap:.1f} points — treat this as a "
                 f"genuine tie and weigh the commercial relationship and the open "
@@ -149,8 +173,8 @@ def collect_comparison_risks(comparison: ComparisonResult) -> list[str]:
     if incomplete:
         names = ", ".join(r.supplier_name for r in incomplete)
         risks.append(
-            f"{len(incomplete)} quote(s) are incomplete ({names}); their scores are "
-            f"docked and their figures may change."
+            f"{len(incomplete)} quote(s) are incomplete ({names}); they rank below "
+            f"every complete quote and their figures may change."
         )
 
     excluded = [r for r in comparison.results if not r.comparable]
@@ -162,10 +186,37 @@ def collect_comparison_risks(comparison: ComparisonResult) -> list[str]:
             f"see each quote's exclusion reason."
         )
 
-    if comparison.results and not comparison.results[0].breakdown.fx_from == comparison.base_currency:
+    # Warn whenever ANY quote was converted, not just the winner. Checking only the
+    # leading result meant a batch containing a converted EUR quote raised no caveat
+    # at all whenever a USD quote happened to win — the very case where a buyer is
+    # most likely to trust the numbers without looking.
+    converted = [
+        result
+        for result in comparison.results
+        if result.comparable
+        and result.currency_original
+        and result.currency_original != comparison.base_currency
+    ]
+
+    if converted:
+        names = ", ".join(sorted({result.supplier_name for result in converted}))
         risks.append(
-            "Currency conversion used a static baseline FX table, not a live rate. "
-            "Confirm the rate before committing."
+            f"Currency conversion used a static baseline FX table, not a live rate "
+            f"({names}). Confirm the rate before committing."
+        )
+
+    rebased = [
+        result
+        for result in comparison.results
+        if result.comparable
+        and result.breakdown.total != result.breakdown.total_before_incoterms
+    ]
+
+    if rebased:
+        names = ", ".join(sorted({result.supplier_name for result in rebased}))
+        risks.append(
+            f"Incoterms rebasing applied to {names} using an indicative cost ladder, "
+            f"not quoted freight. Treat those totals as estimates."
         )
 
     for result in comparison.results:
@@ -178,14 +229,23 @@ def collect_comparison_risks(comparison: ComparisonResult) -> list[str]:
 
 
 def tie_break_note(comparison: ComparisonResult) -> str | None:
-    """Explicit note when two ranked quotes are effectively equal."""
+    """Explicit note when two ranked quotes on the SAME basis are effectively equal.
+
+    Comparing the raw score gap across incomplete and complete quotes would be
+    misleading: the ordering rule puts completeness first, so the leading quote's
+    score can legitimately be lower than the runner-up's. Only quotes judged on the
+    same basis are compared.
+    """
 
     ranked = comparison.ranked()
 
     if len(ranked) < 2:
         return None
 
-    gap = ranked[0].composite_score - ranked[1].composite_score
+    if ranked[0].completeness != ranked[1].completeness:
+        return None
+
+    gap = abs(ranked[0].composite_score - ranked[1].composite_score)
 
     if gap >= 3.0:
         return None

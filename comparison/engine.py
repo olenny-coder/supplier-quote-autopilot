@@ -188,10 +188,25 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
             today=today,
         )
 
-    # Rank by composite score, then by landed cost as a deterministic tie-break
-    # so two identical runs never disagree.
+    # Ordering rule, and it is deliberate:
+    #
+    #   1. every COMPLETE quote ranks ahead of every incomplete one, regardless of
+    #      score, because an incomplete quote is missing exactly the fields (MOQ,
+    #      payment terms, validity) that would change its own cost and terms — it
+    #      cannot be compared on equal terms, so it must not win one;
+    #   2. within each group, by composite score;
+    #   3. then by landed cost, then by id, so two identical runs never disagree.
+    #
+    # Incomplete quotes are still scored and still listed, immediately below the
+    # ranked ones, with their exclusion note. Dropping them would be worse: a buyer
+    # needs to see that a cheaper quote exists and what it is missing.
     comparable.sort(
-        key=lambda r: (-r.composite_score, float(r.total_base or 0), r.quote_id)
+        key=lambda r: (
+            0 if r.completeness == "complete" else 1,
+            -r.composite_score,
+            float(r.total_base or 0),
+            r.quote_id,
+        )
     )
 
     for index, result in enumerate(comparable, start=1):
@@ -215,8 +230,11 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
     if note:
         comparison.risks.append(note)
 
-    comparison.is_conclusive = bool(comparable) and all(
-        r.completeness != "incomplete" for r in comparable[:1]
+    # Conclusive means a complete quote could be ranked and is therefore the
+    # recommendation. When every comparison candidate is incomplete, the output is
+    # advisory at best and the buyer is told so.
+    comparison.is_conclusive = any(
+        result.completeness == "complete" for result in comparable
     )
 
     comparison.rationale = build_rationale(comparison)

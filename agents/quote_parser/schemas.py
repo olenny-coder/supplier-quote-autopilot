@@ -76,7 +76,12 @@ class ParsedQuote(BaseModel):
     notes: str | None = None
 
     # ------------------------------------------------------------- meta
-    classification: Classification = "quote_data"
+    #: ``None`` until some layer actually *decides*. A default of "quote_data" was
+    #: a real bug: the heuristic layer always carried that default, so it won the
+    #: merge and clobbered a correct "question" verdict from the classifier — which
+    #: meant a supplier waiting on the buyer was recorded as ordinary quote data and
+    #: then chased, the exact failure the follow-up rules exist to prevent.
+    classification: Classification | None = None
 
     #: 0–1. Low confidence is surfaced to the buyer rather than acted on.
     confidence: float = 0.0

@@ -36,6 +36,7 @@ from agents.quote_parser.normalize import parse_date
 from agents.quote_parser.normalize import parse_int
 from agents.quote_parser.normalize import parse_lead_time_days
 from agents.quote_parser.normalize import parse_money
+from agents.quote_parser.normalize import parse_moq
 from agents.quote_parser.normalize import parse_validity_date
 from agents.quote_parser.normalize import parse_warranty_months
 from agents.quote_parser.prompts import SYSTEM_PROMPT
@@ -54,7 +55,11 @@ COERCIONS: dict[str, object] = {
     "discount": parse_money,
     "unit": normalize_unit_text,
     "lead_time_days": parse_lead_time_days,
-    "moq": parse_int,
+    # parse_moq, not parse_int: it understands "MOQ: 500", "minimum order 1000",
+    # "no MOQ" (an explicit 0, i.e. an answer) and "TBD" (a gap). parse_int would
+    # record None for a declined MOQ, which then scores *worse* than naming a small
+    # minimum — penalising the supplier who answered.
+    "moq": parse_moq,
     "warranty_months": parse_warranty_months,
     "payment_terms": normalize_payment_terms,
     "incoterms": normalize_incoterms,
@@ -169,14 +174,18 @@ def merge_parsed(*layers: ParsedQuote) -> ParsedQuote:
     """Merge parsed layers field-wise, earliest layer winning."""
 
     merged = ParsedQuote()
+    contributors: list[str] = []
 
     for layer in layers:
         if layer is None:
             continue
 
+        contributed = False
+
         for field, value in layer.provided_fields().items():
             if getattr(merged, field, None) in (None, ""):
                 setattr(merged, field, value)
+                contributed = True
 
         for field, source in layer.field_sources.items():
             merged.field_sources.setdefault(field, source)
@@ -188,8 +197,28 @@ def merge_parsed(*layers: ParsedQuote) -> ParsedQuote:
         merged.unparsed = merged.unparsed or layer.unparsed
         merged.blocking_question = merged.blocking_question or layer.blocking_question
         merged.confidence = max(merged.confidence, layer.confidence)
-        merged.classification = layer.classification or merged.classification
-        merged.source = layer.source if layer.source != "merged" else merged.source
+
+        # A layer's classification is only adopted when the layer actually decided.
+        # `ParsedQuote.classification` defaults to None precisely so this line can
+        # tell "the classifier said quote_data" apart from "nobody has classified
+        # this yet".
+        if merged.classification is None and layer.classification is not None:
+            merged.classification = layer.classification
+            contributed = True
+
+        if contributed:
+            contributors.append(layer.source)
+
+    # Provenance: name the combination when more than one layer contributed, rather
+    # than reporting whichever layer happened to run last.
+    unique = [name for name in dict.fromkeys(contributors) if name != "merged"]
+
+    if not unique:
+        merged.source = "form"
+    elif len(unique) == 1:
+        merged.source = unique[0]
+    else:
+        merged.source = "merged"
 
     return merged
 
@@ -309,16 +338,17 @@ async def parse_submission(
 
     parsed = merge_parsed(form_layer, llm_layer, heuristic_layer)
 
-    if llm_layer is None and form_layer.provided_fields():
-        parsed.source = "merged"
+    # Whoever is left, the classification must be decided before escalation logic
+    # runs. A question-only message with no LLM configured is the case this
+    # protects: without it, the missing classification defaulted to "quote_data"
+    # and a supplier waiting on the buyer got chased instead of escalated.
+    if parsed.classification is None:
+        parsed.classification = classify_text(free_text) if free_text else "quote_data"
 
-    if parsed.classification == "other" and free_text:
-        parsed.classification = classify_text(free_text)
-
-    if not parsed.blocking_question and free_text:
+    if not parsed.blocking_question and free_text and parsed.classification == "question":
         question = extract_question(free_text)
 
-        if question and parsed.classification == "question":
+        if question:
             parsed.blocking_question = question
 
     return parsed, evaluate(
