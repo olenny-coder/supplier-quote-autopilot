@@ -7,10 +7,20 @@ REM  Usage (from a plain Command Prompt, in this folder):
 REM
 REM      dev.cmd            start the API + buyer dashboard + supplier form
 REM      dev.cmd open       restart nothing, just open the UI in your browser
+REM      dev.cmd llm        check whether your LLM API key works
 REM      dev.cmd reset      wipe the database, re-seed the demo, then start
 REM      dev.cmd seed       load the demo workspace (buyer, suppliers, RFQ, links)
 REM      dev.cmd stop       stop whatever is listening on ports 8000/5173/5174
 REM      dev.cmd links      print the test links for an already-running instance
+REM
+REM  Adding your own free LLM key (optional - the app works without one):
+REM      1. Get one at https://console.groq.com   (free, no credit card)
+REM      2. Open backend\.env and set:   LLM_API_KEY=gsk_your_key_here
+REM      3. Restart the API:  dev.cmd stop   then   dev.cmd
+REM      4. Confirm it works: dev.cmd llm
+REM
+REM  Why a restart: settings are read once when the API process starts, so a .env
+REM  change is not picked up by uvicorn's file watcher.
 REM
 REM  What it starts:
 REM      8000  FastAPI + Swagger UI
@@ -55,12 +65,13 @@ REM ---------------------------------------------------------------------------
 if /i "%ACTION%"=="seed" goto :seed
 if /i "%ACTION%"=="reset" goto :reset
 if /i "%ACTION%"=="open" goto :open
+if /i "%ACTION%"=="llm" goto :llm
 if /i "%ACTION%"=="start" goto :start
 
 echo.
 echo   Unknown option: %ACTION%
 echo.
-echo   Usage: dev.cmd [start ^| open ^| reset ^| seed ^| stop ^| links]
+echo   Usage: dev.cmd [start ^| open ^| llm ^| reset ^| seed ^| stop ^| links]
 echo.
 exit /b 1
 
@@ -199,6 +210,17 @@ pushd backend
 call uv run python -m scripts.show_links --timeout 10 --open
 popd
 exit /b 0
+
+
+REM ===========================================================================
+REM  LLM  - is the configured AI provider actually reachable and working?
+REM ===========================================================================
+:llm
+pushd backend
+call uv run python -m scripts.check_llm
+set "LLM_EXIT=%errorlevel%"
+popd
+exit /b %LLM_EXIT%
 
 
 REM ===========================================================================

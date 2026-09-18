@@ -6,7 +6,7 @@ environment:
 
     LLM_BASE_URL=https://api.groq.com/openai/v1
     LLM_API_KEY=gsk_...
-    LLM_MODEL=llama-3.3-70b-versatile
+    LLM_MODEL=openai/gpt-oss-120b
 
 Everything here exists to keep a *free* tier usable:
 

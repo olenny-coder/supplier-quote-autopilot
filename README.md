@@ -217,19 +217,59 @@ LLM_API_KEY=…
 LLM_MODEL=…
 ```
 
+> ### ⚠️ Model ids expire — this is the #1 cause of "my key doesn't work"
+>
+> Providers retire models on a schedule, and a retired id fails **every** request
+> with `model_not_found`. That reads like a broken key but is not one, so check the
+> model before you check the key.
+>
+> This has already bitten this project: Groq **shut down `llama-3.3-70b-versatile`
+> on 2026-08-16**, so the defaults here now use `openai/gpt-oss-120b`, Groq's
+> recommended replacement.
+>
+> Verify your own configuration in one command — it sends a real request and tells
+> you whether a failure is a **key** problem or a **model** problem:
+>
+> ```cmd
+> dev.cmd llm
+> ```
+>
+> Current model lists: [Groq](https://console.groq.com/docs/models) ·
+> [Groq deprecations](https://console.groq.com/docs/deprecations) ·
+> [OpenRouter free](https://openrouter.ai/models?max_price=0) ·
+> [Gemini](https://ai.google.dev/gemini-api/docs/models)
+
 ### Option A — Groq (default; recommended)
 
 Fastest of the three and generous limits.
 
 1. Sign up at <https://console.groq.com> (no credit card).
 2. **API Keys → Create API Key**, copy it.
-3. Set:
+3. Set in `backend/.env` (local) or the Render dashboard (production):
 
 ```env
 LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=openai/gpt-oss-120b
 LLM_API_KEY=gsk_…
 ```
+
+4. **Restart the API** — settings are read once at process start, so `uvicorn`'s
+   file watcher will *not* pick up a `.env` change:
+
+```cmd
+dev.cmd stop
+dev.cmd
+```
+
+5. Confirm:
+
+```cmd
+dev.cmd llm
+```
+
+`openai/gpt-oss-120b` supports **JSON Object Mode**, which this codebase relies on
+for structured extraction and follow-up drafting, so it is a drop-in replacement for
+the retired model. `qwen/qwen3.6-27b` is Groq's other recommendation.
 
 **Free-tier limits:** roughly **30 requests/minute** and **14,400 requests/day** per
 model. Context window varies by model.
@@ -480,7 +520,7 @@ The `/health` payload tells you which optional pieces are live:
   "status": "ok",
   "database": { "connected": true },
   "storage":  { "backend": "s3", "ok": true },
-  "llm":      { "configured": true, "provider": "groq", "model": "llama-3.3-70b-versatile" },
+  "llm":      { "configured": true, "provider": "groq", "model": "openai/gpt-oss-120b" },
   "email":    { "provider": "resend", "transport": "https-api", "smtp_used": false },
   "scheduler":{ "running": true, "external_tick_enabled": true, "auto_send_followups": false }
 }
@@ -717,7 +757,7 @@ information with more commentary.
 | --- | --- | --- |
 | `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | Any OpenAI-compatible endpoint. |
 | `LLM_API_KEY` | *(empty)* | Empty ⇒ deterministic fallbacks everywhere. |
-| `LLM_MODEL` | `llama-3.3-70b-versatile` | |
+| `LLM_MODEL` | `openai/gpt-oss-120b` | |
 | `LLM_ENABLED` | `true` | A kill switch that does not require removing the key. |
 | `LLM_REQUESTS_PER_MINUTE` | `30` | Matches Groq's free tier. Lower it, never raise it above your actual tier. |
 | `LLM_MAX_CONCURRENCY` | `2` | |

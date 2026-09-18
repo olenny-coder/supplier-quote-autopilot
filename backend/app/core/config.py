@@ -28,19 +28,35 @@ DEFAULT_DATABASE_URL = (
 
 # Provider presets, used by /health and the README so a misconfigured deployment
 # is diagnosable from the API rather than only from logs.
+#
+# Model ids in this table have a shelf life. Providers retire models on a schedule
+# and a retired id fails every request with a 404 "model_not_found", which looks
+# like a broken API key rather than a stale default. Groq's own deprecation page
+# is the authority:
+#
+#   https://console.groq.com/docs/deprecations
+#
+# Groq shut down `llama-3.3-70b-versatile` on 2026-08-16 and recommends
+# `openai/gpt-oss-120b`. That replacement supports JSON Object Mode, which this
+# codebase relies on for structured extraction and follow-up drafting, so it is a
+# drop-in. If a call ever fails with `model_not_found`, this table is the first
+# place to look — and `dev.cmd llm` will tell you in one command.
 LLM_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "signup": "https://console.groq.com",
     },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
+        # Any model id ending in `:free`. Check the current list at
+        # https://openrouter.ai/models?max_price=0 — the free roster changes.
         "model": "deepseek/deepseek-r1:free",
         "signup": "https://openrouter.ai",
     },
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        # Check https://ai.google.dev/gemini-api/docs/models for the current roster.
         "model": "gemini-2.0-flash",
         "signup": "https://aistudio.google.com",
     },

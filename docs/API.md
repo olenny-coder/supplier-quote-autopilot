@@ -539,7 +539,7 @@ Abridged response (three quotes, one incomplete):
   "rationale": "3 of 3 quote(s) were comparable. …",
   "risks": ["1 quote(s) are incomplete (Halcyon Fasteners Ltd); their scores are docked and their figures may change."],
   "is_conclusive": true,
-  "llm_model": "llama-3.3-70b-versatile",
+  "llm_model": "openai/gpt-oss-120b",
   "computed_by": "engine+llm",
   "is_current": true,
   "recommended_supplier": "Nova Metals S.L.",
