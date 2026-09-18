@@ -17,6 +17,10 @@ REM
 REM  Adding your own free LLM key (optional - the app works without one):
 REM      dev.cmd key        <- prompts for the key and does everything else
 REM
+REM  The same thing exists standalone as set-llm-key.cmd / set-llm-key.ps1. Use the
+REM  .cmd one from Command Prompt: Windows has no file association for .ps1, so
+REM  typing ".\set-llm-key.ps1" in cmd.exe hangs silently instead of running.
+REM
 REM  What it starts:
 REM      8000  FastAPI + Swagger UI
 REM      5173  buyer dashboard   (Vite dev server)

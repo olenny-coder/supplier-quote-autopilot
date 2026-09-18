@@ -3,6 +3,16 @@
     Set the LLM API key (Groq by default) in backend\.env, then verify it works.
 
 .DESCRIPTION
+    HOW TO RUN IT — the shell matters:
+
+        Command Prompt    set-llm-key.cmd          (or: dev.cmd key)
+        PowerShell        .\set-llm-key.ps1        (or: .\set-llm-key.cmd)
+
+    Typing `.\set-llm-key.ps1` in **cmd.exe** does not work: Windows has no file
+    association for .ps1, so the command hangs silently — no output, no error, no
+    exit — even though the file is sitting right there. Use the .cmd wrapper from
+    cmd, or run it from PowerShell.
+
     Prompts for a key, writes it into backend\.env without touching anything else,
     restarts the local stack, and sends one real request to confirm the key works.
 
@@ -22,6 +32,9 @@
 .PARAMETER Key
     The API key. Omit to be prompted (input is masked).
 
+.PARAMETER EnvFile
+    Which file to edit. Defaults to backend\.env.
+
 .PARAMETER NoRestart
     Write the key but leave the running services alone.
 
@@ -30,15 +43,15 @@
 
 .EXAMPLE
     .\set-llm-key.ps1
-    Prompt for the key, write it, restart, verify.
+    From PowerShell: prompt for the key, write it, restart, verify.
 
 .EXAMPLE
-    .\set-llm-key.ps1 -Key gsk_abc123 -NoRestart
-    Write the key and stop.
+    set-llm-key.cmd -Key gsk_abc123 -NoRestart
+    From Command Prompt: write the key and stop.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\set-llm-key.ps1
-    Same as the first, for a machine where scripts are blocked by policy.
+    Explicit form, for a machine where scripts are blocked by policy.
 #>
 
 [CmdletBinding()]

@@ -264,6 +264,21 @@ LLM_API_KEY=gsk_…
 dev.cmd key
 ```
 
+   The same thing standalone — **the shell matters**, and this trips people up:
+
+```cmd
+:: Command Prompt
+set-llm-key.cmd
+
+:: PowerShell
+.\set-llm-key.ps1
+```
+
+> ⚠️ Typing `.\set-llm-key.ps1` in **Command Prompt** does not work. Windows has no
+> file association for `.ps1`, so the command hangs with no output, no error and no
+> exit — even though the file is right there. Use `set-llm-key.cmd` from cmd, or run
+> the `.ps1` from PowerShell. (`dev.cmd key` works from either.)
+
 4. **Restart the API** — settings are read once at process start, so `uvicorn`'s
    file watcher will *not* pick up a `.env` change. `dev.cmd key` does this for you;
    if you edited the file by hand:
