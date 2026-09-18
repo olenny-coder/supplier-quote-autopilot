@@ -1,21 +1,56 @@
+# --- secrets ------------------------------------------------------------------
+# Never commit a real .env. .env.example is the template and IS committed.
 .env
+.env.local
+.env.*.local
 backend/.env
 frontend/.env
+public_form/.env
+*.pem
+*.key
 
+# --- python -------------------------------------------------------------------
 backend/.venv/
-frontend/node_modules/
-
+.venv/
+venv/
 __pycache__/
-
 *.pyc
-
-dist/
-
-.vscode/
-
-.idea/
-
+*.pyo
+*.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- node ---------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+public_form/node_modules/
+dist/
+frontend/dist/
+public_form/dist/
+.vite/
+coverage/
+npm-debug.log*
+yarn-error.log*
+
+# --- local runtime state ------------------------------------------------------
+# Uploaded files (dev storage backend) and scratch SQLite databases. The test
+# suite and the Alembic walkthrough both create these.
+backend/var/
+var/
+*.db
+*.sqlite3
+logs/
+tmp/
+
+# --- editors / os -------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
 # Local dev startup scripts (developer convenience, not committed)
 /dev.cmd

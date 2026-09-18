@@ -30,6 +30,7 @@ from app.features.comparison.schema import ComparisonResponse
 from app.features.comparison.schema import QuoteSummary
 from app.features.quote.model import SupplierQuote
 from app.features.rfq.model import RFQ
+from app.features.supplier.model import Supplier
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +84,37 @@ class ComparisonService:
 
     # ------------------------------------------------------------ input build
     @staticmethod
+    def load_quotes(db: Session, rfq_id: int) -> list[SupplierQuote]:
+        """Fetch an RFQ's quotes with an explicit query.
+
+        Deliberately not ``rfq.quotes``: a relationship collection is cached on the
+        instance and can be stale inside a long-running session, which silently
+        drops quotes out of a scoring run. Querying is one cheap SELECT and cannot
+        go stale.
+        """
+
+        stmt = (
+            select(SupplierQuote)
+            .where(SupplierQuote.rfq_id == rfq_id)
+            .order_by(SupplierQuote.id.asc())
+        )
+
+        return list(db.scalars(stmt).all())
+
+    @staticmethod
     def build_input(db: Session, rfq: RFQ) -> ComparisonInput:
         """Convert RFQ + ORM quotes into the engine's pure input."""
 
         quotes: list[QuoteInput] = []
 
-        for quote in rfq.quotes:
+        for quote in ComparisonService.load_quotes(db, rfq.id):
             risk = "low"
 
-            if quote.supplier is not None:
-                risk = quote.supplier.risk_rating or "low"
+            if quote.supplier_id is not None:
+                supplier = db.get(Supplier, quote.supplier_id)
+
+                if supplier is not None:
+                    risk = supplier.risk_rating or "low"
 
             quotes.append(
                 QuoteInput(
@@ -197,7 +219,9 @@ class ComparisonService:
 
         # Write the normalized figures back onto the quotes so the quotes table and
         # the CSV/PDF importers see the same numbers the comparison used.
-        ComparisonService.apply_to_quotes(db, rfq.quotes, result)
+        ComparisonService.apply_to_quotes(
+            db, ComparisonService.load_quotes(db, rfq.id), result
+        )
 
         db.commit()
         db.refresh(comparison)

@@ -2,17 +2,31 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+concurrency:
+  # One run per branch. A superseded push should not race the newer one for the
+  # deploy step.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Tests must never reach a real database, LLM, or email provider. Setting these
+  # here rather than only in conftest means a test that bypasses the fixtures still
+  # cannot make a network call that costs money or sends mail.
+  LLM_API_KEY: ""
+  LLM_ENABLED: "false"
+  EMAIL_PROVIDER: console
+  EMAIL_API_KEY: ""
+  STORAGE_BACKEND: local
+  SCHEDULER_ENABLED: "false"
+  AUTO_SEND_FOLLOWUPS: "false"
 
 jobs:
   backend:
-    name: Backend Tests
-
+    name: Backend tests
     runs-on: ubuntu-latest
 
     defaults:
@@ -20,28 +34,66 @@ jobs:
         working-directory: backend
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
-      - name: Set Up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Install Dependencies
-        run: uv sync
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
 
-      - name: Run Tests
+      - name: Run tests
         env:
-            DATABASE_URL: sqlite:///./test.db
-        run: uv run pytest
+          DATABASE_URL: sqlite:///./ci-test.db
+        run: uv run pytest -q
+
+      - name: Check the migration matches the models
+        # `alembic check` fails when the models define something the migration does
+        # not contain. It is the cheapest guard against a deploy that boots against
+        # a schema the code does not expect.
+        env:
+          DATABASE_URL: sqlite:///./ci-alembic.db
+          DATABASE_URL_DIRECT: ""
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Verify requirements.txt is in sync with uv.lock
+        # Render installs from requirements.txt (so the start command can be the
+        # plain `uvicorn ...` form). If the two drift, production silently runs a
+        # different dependency set than CI tested.
+        run: |
+          uv export --format requirements-txt --no-dev --no-hashes --no-emit-project -o /tmp/requirements.expected
+          if ! diff -q /tmp/requirements.expected requirements.txt > /dev/null; then
+            echo "::error::requirements.txt is out of date. Regenerate it with:"
+            echo "  uv export --format requirements-txt --no-dev --no-hashes --no-emit-project -o requirements.txt"
+            diff -u requirements.txt /tmp/requirements.expected || true
+            exit 1
+          fi
+          echo "requirements.txt matches uv.lock"
+
+      - name: Assert there is no SMTP dependency
+        # Render's free tier blocks ports 25/465/587, so an SMTP code path is a
+        # production outage waiting to happen. The test suite covers this too; this
+        # step makes the rule fail the build even if that test is ever removed.
+        run: |
+          if grep -rnE "^\s*(import smtplib|from smtplib)" --include="*.py" . ../agents ../comparison; then
+            echo "::error::SMTP is not permitted — use the HTTP email API (app/core/email.py)."
+            exit 1
+          fi
+          echo "no SMTP imports found"
 
   frontend:
-    name: Frontend Build
-
+    name: Buyer dashboard build
     runs-on: ubuntu-latest
 
     defaults:
@@ -49,51 +101,122 @@ jobs:
         working-directory: frontend
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set Up Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build Frontend
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
         env:
-          VITE_API_BASE_URL: http://localhost:8000
+          VITE_API_URL: http://localhost:8000
         run: npm run build
 
-  deploy:
-    name: Deploy to VPS
-
+  public_form:
+    name: Supplier form build
     runs-on: ubuntu-latest
 
-    needs:
-      - backend
-      - frontend
+    defaults:
+      run:
+        working-directory: public_form
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: public_form/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        env:
+          VITE_API_URL: http://localhost:8000
+        run: npm run build
+
+  compose:
+    name: Compose config is valid
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        # `docker compose up` is an acceptance criterion, and a malformed compose
+        # file is the kind of breakage that only shows up on a fresh clone.
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          echo "docker-compose.yml is valid"
+
+      - name: Validate render.yaml
+        run: |
+          python - <<'PY'
+          import sys
+          try:
+              import yaml
+          except ImportError:
+              print("pyyaml not available; skipping render.yaml parse")
+              sys.exit(0)
+          with open("render.yaml") as handle:
+              data = yaml.safe_load(handle)
+          services = data.get("services") or []
+          assert services, "render.yaml defines no services"
+          for service in services:
+              assert service["type"] == "web", "only web services fit the free tier"
+              assert service.get("plan") == "free", "free plan expected"
+              assert service.get("startCommand"), "startCommand is required"
+          print("render.yaml is valid")
+          PY
+
+  deploy:
+    name: Trigger deploys
+    runs-on: ubuntu-latest
+
+    needs: [backend, frontend, public_form, compose]
 
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          port: ${{ secrets.PORT }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Trigger Render deploy
+        # Render deploys automatically from the GitHub integration; this hook is for
+        # repos where auto-deploy is disabled or the service has been suspended.
+        # The step is skipped (not failed) when the secret is absent.
+        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
 
-          script: |
-            cd /opt/apps/rfq-comparison-tool
+      - name: Trigger Vercel deploys
+        if: ${{ secrets.VERCEL_DEPLOY_HOOK != '' }}
+        run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
 
-            git fetch origin
-
-            git reset --hard origin/main
-
-            docker compose down
-
-            docker compose up --build -d
+      - name: Summary
+        run: |
+          {
+            echo "### Deploy triggered"
+            echo ""
+            echo "- Backend: Render (blueprint: render.yaml)"
+            echo "- Buyer dashboard: Vercel (root: frontend/)"
+            echo "- Supplier form: Vercel (root: public_form/)"
+            echo ""
+            echo "Remember to run migrations against the DIRECT connection string:"
+            echo '  DATABASE_URL_DIRECT=... alembic upgrade head'
+          } >> "$GITHUB_STEP_SUMMARY"

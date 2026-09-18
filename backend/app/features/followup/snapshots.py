@@ -9,6 +9,7 @@ the same inputs.
 from datetime import UTC
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agents.followup.schemas import InvitationSnapshot
@@ -31,6 +32,20 @@ def _as_aware(value: datetime | None) -> datetime | None:
     return value
 
 
+def find_quote(db: Session, invitation_id: int) -> SupplierQuote | None:
+    """Load an invitation's quote with an explicit query.
+
+    Deliberately not ``invitation.quote``: the relationship is cached on the
+    instance, so a session that has just created the quote can still see ``None``
+    and conclude the supplier never responded — which silently suppresses the
+    follow-up that was the whole point of the row.
+    """
+
+    return db.scalar(
+        select(SupplierQuote).where(SupplierQuote.invitation_id == invitation_id)
+    )
+
+
 def build_snapshot(
     db: Session,
     invitation: Invitation,
@@ -45,7 +60,7 @@ def build_snapshot(
     supplier = invitation.supplier
 
     if quote is None:
-        quote = invitation.quote
+        quote = find_quote(db, invitation.id)
 
     owner = rfq.owner if rfq is not None else None
 

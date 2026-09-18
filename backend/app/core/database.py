@@ -51,7 +51,15 @@ SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
     autocommit=False,
-    expire_on_commit=False,
+    # expire_on_commit is left at SQLAlchemy's default (True) on purpose. The
+    # tempting `False` avoids a re-SELECT after every commit, but it also keeps
+    # *cached relationship collections* alive — so a long-lived session (the
+    # scheduler sweep, the seed script, a multi-step request) can read
+    # `rfq.quotes` or `invitation.quote` and get a stale snapshot from before its
+    # own inserts. That produced two real bugs during development: a comparison
+    # that scored one quote out of three, and a follow-up that skipped a supplier
+    # whose quote it could not see. Correctness first; the extra SELECT is cheap.
+    expire_on_commit=True,
 )
 
 

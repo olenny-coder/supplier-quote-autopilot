@@ -37,6 +37,7 @@ from app.core.mixins import utcnow
 from app.features.followup import repository
 from app.features.followup.model import FollowUp
 from app.features.followup.snapshots import build_snapshot
+from app.features.followup.snapshots import find_quote
 from app.features.invitation.model import Invitation
 from app.features.invitation.service import send_email_message_sync
 from app.features.rfq.model import RFQ
@@ -413,7 +414,7 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
     expired = 0
 
     for invitation in repository.open_invitations(db):
-        if invitation.quote is not None:
+        if find_quote(db, invitation.id) is not None:
             continue
 
         expires_at = invitation.expires_at

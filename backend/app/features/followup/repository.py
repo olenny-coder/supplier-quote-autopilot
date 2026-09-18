@@ -152,12 +152,23 @@ def to_response(followup: FollowUp) -> FollowUpResponse:
     )
 
 
+#: Statuses the scheduler never needs to look at again.
+TERMINAL_INVITATION_STATUSES = ("cancelled", "declined", "expired", "submitted")
+
+
 def open_invitations(db: Session, *, limit: int = 500) -> list[Invitation]:
-    """Invitations the scheduler should consider: not terminal, link not cancelled."""
+    """Invitations the scheduler should consider.
+
+    Defined by exclusion (not cancelled/declined/expired/submitted) rather than by
+    inclusion (pending/incomplete) so a row whose stored status has not been
+    updated to match its quote is still examined. The policy reads the quote
+    itself, so a wrongly-included row is skipped with a reason and a wrongly-
+    *excluded* row is a follow-up that never happens — the expensive failure.
+    """
 
     stmt = (
         select(Invitation)
-        .where(Invitation.status.in_(("pending", "incomplete")))
+        .where(Invitation.status.not_in(TERMINAL_INVITATION_STATUSES))
         .order_by(Invitation.id.asc())
         .limit(limit)
     )

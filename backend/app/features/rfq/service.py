@@ -140,7 +140,16 @@ class RFQService:
     # ------------------------------------------------------------------ counters
     @staticmethod
     def counts(db: Session, rfq_ids: list[int]) -> dict[int, dict[str, int]]:
-        """Bulk counters for list views — three queries, not three per RFQ."""
+        """Bulk counters for list views — a fixed number of queries per RFQ.
+
+        Buckets are derived from the *quote's* completeness rather than trusting
+        ``Invitation.status``, because the stored status can lag (a quote created
+        by a path that did not update the invitation) and a wrong respond/pending
+        count is exactly the number a buyer acts on.
+
+        ``incomplete_count`` is a **subset of** ``responded_count``: a supplier who
+        sent a partial quote did respond, and also still owes something.
+        """
 
         if not rfq_ids:
             return {}
@@ -157,40 +166,69 @@ class RFQService:
             for rfq_id in rfq_ids
         }
 
-        invite_rows = db.execute(
+        rows = db.execute(
             select(
                 Invitation.rfq_id,
                 Invitation.status,
                 Invitation.responded_at,
-                func.count(Invitation.id),
+                SupplierQuote.id,
+                SupplierQuote.completeness,
+                SupplierQuote.unit_price,
             )
+            .outerjoin(SupplierQuote, SupplierQuote.invitation_id == Invitation.id)
             .where(Invitation.rfq_id.in_(rfq_ids))
-            .group_by(Invitation.rfq_id, Invitation.status, Invitation.responded_at)
         ).all()
 
-        for rfq_id, status, responded_at, count in invite_rows:
+        TERMINAL = {"expired", "cancelled", "declined"}
+
+        for (
+            rfq_id,
+            invitation_status,
+            responded_at,
+            quote_id,
+            completeness,
+            unit_price,
+        ) in rows:
             bucket = result.get(rfq_id)
 
             if bucket is None:
                 continue
 
-            bucket["invitation_count"] += count
+            bucket["invitation_count"] += 1
 
-            if responded_at is not None or status == "submitted":
-                bucket["responded_count"] += count
-            elif status == "incomplete":
-                bucket["incomplete_count"] += count
-            elif status == "pending":
-                bucket["pending_count"] += count
+            if quote_id is not None:
+                bucket["responded_count"] += 1
+                bucket["quote_count"] += 1
 
-        quote_rows = db.execute(
+                if completeness == "incomplete":
+                    bucket["incomplete_count"] += 1
+                elif unit_price is not None and unit_price > 0:
+                    bucket["complete_priced_quotes"] += 1
+
+                continue
+
+            if invitation_status in TERMINAL:
+                # Neither awaiting nor owed: the window closed.
+                continue
+
+            if responded_at is not None or invitation_status == "submitted":
+                bucket["responded_count"] += 1
+            elif invitation_status == "incomplete":
+                bucket["responded_count"] += 1
+                bucket["incomplete_count"] += 1
+            else:
+                bucket["pending_count"] += 1
+
+        # Quotes that are not attached to an invitation (manual entry, CSV/PDF
+        # import) still need to appear in the quote count.
+        orphan_rows = db.execute(
             select(
                 SupplierQuote.rfq_id,
                 SupplierQuote.completeness,
                 SupplierQuote.unit_price,
                 func.count(SupplierQuote.id),
             )
-            .where(SupplierQuote.rfq_id.in_(rfq_ids))
+            .where(SupplierQuote.rfq_id.in_(rfq_ids), SupplierQuote.invitation_id.is_(None))
             .group_by(
                 SupplierQuote.rfq_id,
                 SupplierQuote.completeness,
@@ -198,7 +236,7 @@ class RFQService:
             )
         ).all()
 
-        for rfq_id, completeness, unit_price, count in quote_rows:
+        for rfq_id, completeness, unit_price, count in orphan_rows:
             bucket = result.get(rfq_id)
 
             if bucket is None:
