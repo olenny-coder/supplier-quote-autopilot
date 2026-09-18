@@ -1,5 +1,7 @@
 # --- secrets ------------------------------------------------------------------
-# Never commit a real .env. .env.example is the template and IS committed.
+# Never commit a real .env. Templates ARE committed:
+#   .env.example      every setting, documented, PostgreSQL + real providers
+#   backend/.env.dev  local defaults for `dev.cmd` (SQLite, console email, no key)
 .env
 .env.local
 .env.*.local
@@ -52,5 +54,7 @@ tmp/
 .DS_Store
 Thumbs.db
 
-# Local dev startup scripts (developer convenience, not committed)
-/dev.cmd
+# --- local launcher -----------------------------------------------------------
+# dev.cmd IS committed: it is the documented way to run the stack locally, and it
+# opens with "dev.cmd" from a Command Prompt. Ignore only personal overrides.
+dev.local.cmd

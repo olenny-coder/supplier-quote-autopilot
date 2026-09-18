@@ -73,14 +73,53 @@ third-party form service.
 
 ---
 
-## 2. Quick start (Docker)
+## 2. Quick start
 
-Requires Docker and Docker Compose. Nothing else.
+### The one-command option (Windows — SQLite, no accounts, nothing to install but uv and Node)
+
+From a plain **Command Prompt**, in the repository root:
+
+```cmd
+dev.cmd
+```
+
+That is the whole thing. It checks your toolchain, creates `backend\.env` from
+`backend\.env.dev` (SQLite, console email, no API key), installs dependencies on the
+first run, loads the demo workspace, starts all three services in their own windows,
+and then prints the buyer login **and every supplier's tokenized form link** — the one
+thing you cannot know without asking the database, because the token is generated at
+invitation time.
+
+```
+  BUYER DASHBOARD       http://localhost:5173    buyer@demo-autopilot.example.com
+  SUPPLIER FORM LINKS   http://localhost:5174/quote/<rfq_id>/<token>
+  API DOCS              http://localhost:8000/docs
+```
+
+| Command | What it does |
+| --- | --- |
+| `dev.cmd` | Start everything (installs and seeds on the first run) |
+| `dev.cmd reset` | Wipe the database, re-seed the demo, then start |
+| `dev.cmd seed` | Load the demo workspace without starting anything |
+| `dev.cmd links` | Re-print the links for an already-running instance |
+| `dev.cmd stop` | Stop whatever holds ports 8000 / 5173 / 5174 |
+
+Each service opens in its own window so you can read its log; closing a window stops
+that service. Email is logged, never sent, so no real supplier address is contacted.
+Drop a free Groq key into `LLM_API_KEY` in `backend\.env` and restart to swap the
+deterministic fallbacks for LLM-written reminders and comparison summaries.
+
+> `dev.cmd stop` terminates the whole process tree, not just the listening PID. That
+> matters: `uvicorn --reload` runs a supervisor with a worker child, so killing the
+> worker alone leaves the supervisor free to respawn it and re-bind the port — a stop
+> that looks like it worked and then leaves the port busy.
+
+### Docker Compose (PostgreSQL)
+
+The same stack with **PostgreSQL** instead of SQLite. Requires Docker and Docker
+Compose, nothing else.
 
 ```bash
-git clone <your-repo-url> supplier-quote-autopilot
-cd supplier-quote-autopilot
-
 cp .env.example .env
 # Minimum viable edit: set SECRET_KEY.
 #   python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -98,9 +137,9 @@ docker compose up --build
 | Swagger UI | http://localhost:8000/docs |
 | Health | http://localhost:8000/health |
 
-Then create an account, or load the demo workspace — `docker compose exec backend
-uv run python -m scripts.seed_demo` — which prints a working supplier link and the
-demo login.
+Then create an account, or load the demo workspace —
+`docker compose exec backend uv run python -m scripts.seed_demo --run-scheduler` —
+which prints a working supplier link and the demo login.
 
 Optional extras:
 
@@ -893,10 +932,15 @@ Flags: `--reset` (delete first), `--run-scheduler` (draft reminders immediately)
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `Field required [DATABASE_URL]` on boot | No `.env`, or it is in the wrong directory. Docker Compose reads the **root** `.env`; native runs read `backend/.env`. |
+| `dev.cmd` says a port is already in use | A previous session is still running. Run `dev.cmd stop`, then `dev.cmd`. |
+| `dev.cmd stop` said it worked but the port is still busy | It should not happen — the script kills the process *tree*, because `uvicorn --reload`'s supervisor will respawn a killed worker. If you see it, run `dev.cmd stop` again and check for a stray `SQA API` window. |
+| `dev.cmd links` says the API is not responding | Nothing is running on port 8000. Start it with `dev.cmd`. |
+| `dev.cmd` prints "Unknown option" | Valid options are `start`, `reset`, `seed`, `stop`, `links`. With no argument it starts. |
+| `dev.cmd` stops with "'uv' is not on PATH" | Install [uv](https://docs.astral.sh/uv/) (or Node 22 from [nodejs.org](https://nodejs.org/)), then open a **new** Command Prompt so PATH is re-read. |
+| `Field required [DATABASE_URL]` on boot | No `.env`, or it is in the wrong directory. Docker Compose reads the **root** `.env`; native runs read `backend/.env`. `dev.cmd` creates the latter from `backend/.env.dev`. |
 | First request after idle takes ~1 minute | Expected. Render spun the service down. See [§7](#7-keeping-the-free-tier-alive). |
 | First request succeeds but is slow, then fine | Neon's compute was scaled to zero. Expected; `/health` reports it. |
-| Supplier link 404s | `PUBLIC_FORM_URL` is wrong on Render, or the link was copied with a trailing character. It must be `https://…/quote/<rfq_id>/<token>`. |
+| Supplier link 404s | `PUBLIC_FORM_URL` is wrong on Render, or the link was copied with a trailing character. It must be `https://…/quote/<rfq_id>/<token>`. The `dev.cmd` links come from the API, so they are always the exact stored value. |
 | CORS error in the browser console | `ALLOWED_ORIGINS` on Render must list the exact Vercel origin, scheme included, no trailing slash. Redeploy after changing it. |
 | Emails never arrive | `EMAIL_PROVIDER=console` sends nothing by design. Set a real provider and `EMAIL_API_KEY`, and make sure `MAIL_FROM` is on a **verified** domain. Resend's `onboarding@resend.dev` only delivers to your own account address. |
 | `502 Upstream service error` on a reminder | The email provider rejected the send. The provider's message is in the `detail` and in the follow-up's `error` field; the invitation link is unaffected. |
