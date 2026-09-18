@@ -775,13 +775,21 @@ costs nothing.
 
 | File | Covers |
 | --- | --- |
-| `test_acceptance.py` | The whole product through the public HTTP API: create an RFQ → three suppliers → three unique links → submit (one complete, one partial, one silent) → statuses → scheduler chases both → approve reminders → compare → CSV export → human award → dashboard roll-up. Plus the AI-optional path. |
+| `test_acceptance.py` | The whole product through the public HTTP API: create an RFQ → three suppliers → three unique links → submit (one complete, one partial, one silent) → statuses → scheduler chases both → approve reminders → compare → CSV export → human award → dashboard roll-up. Plus the AI-optional path and deadline-driven expiry. |
+| `test_public_form.py` | The unauthenticated surface, adversarially: unknown/expired/withdrawn/mismatched links, the honeypot, both rate-limit windows, oversized and disallowed uploads, claiming another supplier's attachment, resubmission amending rather than duplicating, free-text parsing, and that a supplier's question is escalated rather than chased. |
 | `test_regressions.py` | Bugs found during development, with the failure mode recorded in each docstring. |
 | `test_comparison_engine.py` | FX, Incoterms rebasing, unit conversion, landed-cost arithmetic, MOQ/payment-term scoring, weighting, ranking, determinism, CSV export. |
 | `test_quote_parser.py` | Verbatim-or-null grounding, layer precedence, lead-time/money/date normalization, and every completeness rule — including "explicitly none is an answer" and "TBD is not". |
 | `test_followup_policy.py` | Each branch of the decision order, reminder caps, and the escalate-don't-chase rule. |
 | `test_transports.py` | The HTTP email providers, the LLM client's retry/backoff/rate-limit behaviour, and an assertion that **no SMTP code exists anywhere**. |
 | `test_rfq.py`, `test_quote.py`, `test_chat.py`, `test_csv_import.py` | Kept from the base codebase, unmodified. |
+
+`INTEGRATION_PLAN.md` §9 records every defect found during the build and why it existed.
+The short version: a per-unit price that converted in the same direction as a quantity
+(a 10⁶ landed-cost error), a currency invented from an ordinary word, a parser default
+that silently disabled the escalate-don't-chase rule whenever no LLM was configured, and
+a stale-session bug that scored one quote out of three. All four are now impossible to
+reintroduce without a test going red.
 
 CI (`.github/workflows/ci-cd.yml`) additionally runs `alembic check` (fails if the
 migration and the models disagree), verifies `requirements.txt` matches `uv.lock`,
@@ -823,6 +831,13 @@ Flags: `--reset` (delete first), `--run-scheduler` (draft reminders immediately)
 - **Never auto-award.** `POST /rfqs/{id}/comparison/approve` is the only path to an
   award. It requires an authenticated buyer and a written reason. Nothing in the
   scheduler, the parser, or the LLM can reach it.
+- **A complete quote always ranks ahead of an incomplete one.** Not a score dock — an
+  ordering rule. An incomplete quote is missing exactly the fields (MOQ, payment
+  terms, validity) that would change its own cost and terms, so it cannot win a
+  comparison it is not fully entered into. Incomplete quotes are still scored and
+  still listed immediately below the ranked ones with their missing fields, and when
+  the rule changes the outcome the rationale says so by name — dropping them from
+  view would be worse, because a buyer needs to know a cheaper quote exists.
 - **Never silently drop a supplier.** A quote that cannot be normalized (unknown
   currency, incompatible unit) still appears in the comparison with
   `comparable: false` and a reason. Omitting a supplier from a comparison is the
@@ -830,10 +845,16 @@ Flags: `--reset` (delete first), `--run-scheduler` (draft reminders immediately)
 - **Never invent a number.** The parser is verbatim-or-null and every extracted value
   cites the phrase it came from. The comparison narrative receives an already-computed
   scoring run and is instructed not to introduce figures of its own.
+- **Never convert a price in the wrong direction.** Unit conversions are derived from
+  physical unit sizes rather than a hand-written factor table, because getting a
+  mass conversion backwards is a 10⁶ error in the landed cost.
 - **Never chase a blocked supplier.** See [§8](#the-follow-up-decision-order).
 - **Never re-ask an answered question.** "No MOQ at this stage" is an answer.
 - **Never send a follow-up that makes a commercial claim.** A model that volunteers
   "your quote is competitive" has its output rejected in favour of the template.
+- **Always state the caveats.** Every comparison records the FX rates and their
+  as-of date, flags any quote it rebased onto different Incoterms, and says when a
+  quote is incomplete or could not be ranked.
 - **No SMTP, ever.** Asserted by a test and by a CI step.
 
 **Deliberate limitations of this MVP**

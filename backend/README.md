@@ -333,6 +333,7 @@ production.
 | File | Covers |
 | --- | --- |
 | `test_acceptance.py` | The whole product through the HTTP API, end to end. |
+| `test_public_form.py` | The unauthenticated surface: bad/expired/withdrawn links, honeypot, both rate-limit windows, upload limits, cross-invitation attachment claims, resubmission semantics, and escalation of a supplier's question. |
 | `test_regressions.py` | Bugs found in development, with the failure mode in each docstring. |
 | `test_comparison_engine.py` | FX, Incoterms rebasing, units, landed cost, scoring, ranking, CSV. |
 | `test_quote_parser.py` | Grounding, layer precedence, normalization, completeness rules. |

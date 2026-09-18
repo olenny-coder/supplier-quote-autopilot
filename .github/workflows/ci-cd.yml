@@ -71,15 +71,24 @@ jobs:
         # Render installs from requirements.txt (so the start command can be the
         # plain `uvicorn ...` form). If the two drift, production silently runs a
         # different dependency set than CI tested.
+        #
+        # Only the dependency lines are compared. `uv export` writes a header comment
+        # recording the `-o` path it was given, which differs between a temp file and
+        # the committed one and would otherwise fail the check for no reason.
         run: |
           uv export --format requirements-txt --no-dev --no-hashes --no-emit-project -o /tmp/requirements.expected
-          if ! diff -q /tmp/requirements.expected requirements.txt > /dev/null; then
+
+          grep -v '^#' /tmp/requirements.expected | grep -v '^[[:space:]]*$' > /tmp/expected.deps
+          grep -v '^#' requirements.txt       | grep -v '^[[:space:]]*$' > /tmp/actual.deps
+
+          if ! diff -q /tmp/expected.deps /tmp/actual.deps > /dev/null; then
             echo "::error::requirements.txt is out of date. Regenerate it with:"
             echo "  uv export --format requirements-txt --no-dev --no-hashes --no-emit-project -o requirements.txt"
-            diff -u requirements.txt /tmp/requirements.expected || true
+            diff -u /tmp/actual.deps /tmp/expected.deps || true
             exit 1
           fi
-          echo "requirements.txt matches uv.lock"
+
+          echo "requirements.txt matches uv.lock ($(grep -c '==' requirements.txt) pinned dependencies)"
 
       - name: Assert there is no SMTP dependency
         # Render's free tier blocks ports 25/465/587, so an SMTP code path is a
