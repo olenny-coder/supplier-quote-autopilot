@@ -6,6 +6,7 @@ REM
 REM  Usage (from a plain Command Prompt, in this folder):
 REM
 REM      dev.cmd            start the API + buyer dashboard + supplier form
+REM      dev.cmd open       restart nothing, just open the UI in your browser
 REM      dev.cmd reset      wipe the database, re-seed the demo, then start
 REM      dev.cmd seed       load the demo workspace (buyer, suppliers, RFQ, links)
 REM      dev.cmd stop       stop whatever is listening on ports 8000/5173/5174
@@ -15,6 +16,10 @@ REM  What it starts:
 REM      8000  FastAPI + Swagger UI
 REM      5173  buyer dashboard   (Vite dev server)
 REM      5174  supplier form     (Vite dev server)
+REM
+REM  When it finishes it OPENS THE BUYER DASHBOARD IN YOUR BROWSER and, if a
+REM  supplier has not submitted yet, that supplier's form too. The app is a web UI
+REM  at http://localhost:5173 - nothing appears on its own otherwise.
 REM
 REM  Each service opens in its own window so you can read its log and close it to
 REM  stop it. This script itself returns immediately.
@@ -49,12 +54,13 @@ REM  seed / reset
 REM ---------------------------------------------------------------------------
 if /i "%ACTION%"=="seed" goto :seed
 if /i "%ACTION%"=="reset" goto :reset
+if /i "%ACTION%"=="open" goto :open
 if /i "%ACTION%"=="start" goto :start
 
 echo.
 echo   Unknown option: %ACTION%
 echo.
-echo   Usage: dev.cmd [start ^| reset ^| seed ^| stop ^| links]
+echo   Usage: dev.cmd [start ^| open ^| reset ^| seed ^| stop ^| links]
 echo.
 exit /b 1
 
@@ -186,6 +192,16 @@ goto :links
 
 
 REM ===========================================================================
+REM  OPEN  - reload the UI in the browser without restarting anything
+REM ===========================================================================
+:open
+pushd backend
+call uv run python -m scripts.show_links --timeout 10 --open
+popd
+exit /b 0
+
+
+REM ===========================================================================
 REM  SEED / RESET
 REM ===========================================================================
 :seed
@@ -221,11 +237,12 @@ REM ===========================================================================
 :links
 pushd backend
 REM Short timeout when invoked as `dev.cmd links`, so asking for links on a
-REM stopped instance fails fast. `dev.cmd start` legitimately waits for boot.
+REM stopped instance fails fast. `dev.cmd start` legitimately waits for boot, and
+REM opens the browser once it is up.
 if /i "%ACTION%"=="links" (
     call uv run python -m scripts.show_links --timeout 8
 ) else (
-    call uv run python -m scripts.show_links
+    call uv run python -m scripts.show_links --open
 )
 popd
 exit /b 0

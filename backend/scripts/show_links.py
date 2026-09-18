@@ -10,12 +10,14 @@ at invitation time.
 """
 
 import argparse
+import os
 import sys
 import time
 
 import httpx
 
 API = "http://localhost:8000"
+DASHBOARD_URL = "http://localhost:5173"
 BUYER_EMAIL = "buyer@demo-autopilot.example.com"
 
 BAR = "=" * 74
@@ -63,6 +65,11 @@ def main() -> int:
         default=90.0,
         help="seconds to wait for the API before giving up",
     )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="open the buyer dashboard and a live supplier form link in the browser",
+    )
     args = parser.parse_args()
 
     print()
@@ -109,6 +116,7 @@ def main() -> int:
         print()
 
     token = login.json().get("access_token") if login.status_code == 200 else None
+    supplier_url: str | None = None
 
     # ------------------------------------------------------- supplier links
     if token:
@@ -130,9 +138,18 @@ def main() -> int:
                 f"{API}/rfqs/{rfq['id']}/invitations", headers=headers, timeout=15.0
             ).json()
 
+            # Prefer a supplier who has not submitted yet: that link is the one
+            # actually worth clicking, because it is still an open form.
+            pending = [i for i in invitations if i["status"] in {"pending", "incomplete"}]
+
+            if pending:
+                supplier_url = pending[0]["form_link"]
+
             for invitation in invitations:
+                marker = "  <- the live one to try" if invitation["form_link"] == supplier_url else ""
+
                 print()
-                print(f"  {invitation['supplier_name']}  [{invitation['status']}]")
+                print(f"  {invitation['supplier_name']}  [{invitation['status']}]{marker}")
                 print(f"    {invitation['form_link']}")
                 print(f"    {invitation['status_reason']}")
 
@@ -153,9 +170,58 @@ def main() -> int:
     print(f"  Scheduler     {'running every ' + str(scheduler.get('interval_minutes')) + ' min' if scheduler.get('running') else 'disabled'}")
     print()
     print("  Stop everything with:   dev.cmd stop")
+    print("  Re-open the browser:    dev.cmd open")
     print()
 
+    if args.open:
+        opened = open_in_browser(DASHBOARD_URL, supplier_url)
+
+        if opened:
+            print(f"  Opened {len(opened)} tab(s) in your default browser:")
+            for url in opened:
+                print(f"    {url}")
+        else:
+            print("  Could not launch a browser automatically. Open one of the URLs above.")
+
+        print()
+
     return 0
+
+
+def open_in_browser(dashboard_url: str, supplier_url: str | None) -> list[str]:
+    """Open the two UIs in the default browser. Returns the URLs actually opened.
+
+    This is the difference between "the services are running" and "here is your
+    app". The URLs were previously only printed, which is easy to miss in a wall of
+    startup output — the launcher now puts the dashboard on screen itself.
+    """
+
+    urls = [dashboard_url]
+
+    # The supplier form is the other half of the product and has no navigation from
+    # the dashboard, so opening a working link saves hunting for a token in the
+    # console output.
+    if supplier_url:
+        urls.append(supplier_url)
+
+    opened: list[str] = []
+
+    for url in urls:
+        try:
+            if hasattr(os, "startfile"):  # Windows
+                os.startfile(url)  # noqa: S606 - intentional, default browser
+            else:  # pragma: no cover - macOS/Linux convenience
+                import webbrowser
+
+                if not webbrowser.open(url):
+                    continue
+            opened.append(url)
+        except OSError:
+            # A headless or locked-down session: fall back to printing, which the
+            # caller does anyway. Never let this fail the command.
+            continue
+
+    return opened
 
 
 if __name__ == "__main__":
