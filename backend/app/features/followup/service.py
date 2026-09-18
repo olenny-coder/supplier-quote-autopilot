@@ -29,7 +29,6 @@ from app.ai.completer import get_completer
 from app.ai.completer import llm_available
 from app.core.config import settings
 from app.core.email import EmailMessage
-from app.core.email import send_email_message
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import ExternalServiceError
 from app.core.exceptions import NotFoundError
@@ -96,7 +95,7 @@ class FollowUpService:
             to_email=draft.to_email,
             subject=draft.subject,
             body=draft.body,
-            llm_generated=1 if draft.llm_generated else 0,
+            llm_generated=bool(draft.llm_generated),
             requested_fields=list(draft.requested_fields) or None,
             scheduled_for=scheduled_for,
             triggered_by=triggered_by,
@@ -235,7 +234,7 @@ class FollowUpService:
                 to_email=invitation.supplier.contact_email,
                 subject=subject,
                 body=body,
-                llm_generated=0,
+                llm_generated=False,
                 triggered_by="buyer",
             )
 

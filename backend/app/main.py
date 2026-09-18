@@ -16,6 +16,7 @@ Notable behaviours:
 """
 
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -247,28 +248,47 @@ def health_check():
 
 
 @app.get("/files/{key:path}", tags=["Internal"])
-def serve_file(key: str):
-    """Storage proxy used when the object store has no public CDN domain."""
+async def serve_file(key: str):
+    """Serve a stored file by its storage key.
 
-    import asyncio
+    Used whenever the object store has no public CDN domain in front of it. That
+    covers two real configurations: the local filesystem backend (the default in
+    development, and a legitimate choice for a self-hosted deploy), and an S3
+    bucket that is deliberately private.
 
-    from fastapi import Response
+    Access control is **capability-based**: the key embeds a random ``uuid4``, so a
+    file can only be fetched by someone who was given its URL. That is the same
+    model the supplier attachment route uses, minus the invitation token. If you
+    need revocable access, front the bucket with a CDN or signed URLs and set
+    ``S3_PUBLIC_BASE_URL`` so this route stops being used.
 
-    from app.core.storage import get_storage as _storage
+    Note: an earlier version of this route refused to serve the local backend, on
+    the reasoning that local files are "dev only". That broke the feature outright
+    — ``LocalStorage.url_for`` hands out exactly this URL, so every attachment link
+    the buyer clicked returned 404.
+    """
 
-    storage = _storage()
+    from fastapi import HTTPException
+    from fastapi.responses import Response
 
-    if storage.__class__.__name__ == "LocalStorage":
-        # Local files are written under UPLOAD_DIR and are only meant for dev.
-        from fastapi import HTTPException
+    from app.core.exceptions import BadRequestError
+    from app.core.exceptions import ExternalServiceError
+    from app.core.storage import get_storage
 
-        raise HTTPException(status_code=404, detail="Not found")
+    storage = get_storage()
 
     try:
-        data = asyncio.run(storage.read(key))
-    except Exception as exc:  # noqa: BLE001
-        from fastapi import HTTPException
-
+        data = await storage.read(key)
+    except (ExternalServiceError, BadRequestError, OSError, ValueError) as exc:
+        # One response for "missing", "malformed", and "not yours". The route must
+        # not report which, and none of those is a server fault.
         raise HTTPException(status_code=404, detail="Not found") from exc
 
-    return Response(content=data, media_type="application/octet-stream")
+    media_type = mimetypes.guess_type(key)[0] or "application/octet-stream"
+
+    return Response(
+        content=data,
+        media_type=media_type,
+        # Keys are unique per upload, so the content behind one never changes.
+        headers={"Cache-Control": "private, max-age=300"},
+    )

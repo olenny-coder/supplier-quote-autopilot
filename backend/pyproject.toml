@@ -38,6 +38,7 @@ dev = [
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.0.0",
+    "ruff>=0.16.8",
 ]
 
 [tool.pytest.ini_options]
@@ -47,6 +48,28 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+# The lint run also covers the two sibling domain packages, which live outside
+# this project directory.
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# Correctness only: F (pyflakes — unused imports and variables, undefined names)
+# and E9 (syntax/runtime errors). Those found 18 real defects in this codebase,
+# including a test file that had been written in the wrong encoding.
+#
+# The stylistic families are deliberately OFF (I, UP, FURB, RUF, B, SIM, E501):
+# this codebase uses one-import-per-line isort style and is not run through a
+# formatter, so enabling them would demand a repo-wide reformat that has nothing to
+# do with correctness and would bury real changes in noise.
+select = ["F", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files legitimately import fixtures and helpers they do not call directly.
+"tests/*" = ["F401"]
 
 [tool.coverage.run]
 source = ["app"]

@@ -15,14 +15,12 @@ database file is involved.
 """
 
 from datetime import UTC
-from datetime import date
 from datetime import datetime
 from datetime import timedelta
 
 import pytest
 
 from app.core.config import settings
-from app.core.mixins import utcnow
 from app.core.rate_limit import get_rate_limiter
 from app.features.followup.service import run_scheduler
 from app.features.invitation.model import Invitation
@@ -160,7 +158,6 @@ def test_preview_counts_a_view_and_the_dashboard_sees_it(client, buyer):
 def test_opening_without_submitting_is_visible_to_the_buyer(client, buyer):
     """The distinction the follow-up engine acts on: opened, but silent."""
 
-    from app.features.invitation.service import InvitationService
 
     client.post(f"/invitations/{buyer['primary']['id']}/resend", headers=buyer["headers"])
     client.get(public_path(buyer))
@@ -435,6 +432,56 @@ def test_a_valid_attachment_is_stored_on_the_quote(client, buyer):
     assert attachment["size"] == len(b"%PDF-1.4 spec")
     # The storage key is generated, not the uploaded name — traversal is impossible.
     assert attachment["key"].startswith("invitations/")
+
+
+def test_the_attachment_url_the_api_hands_out_actually_downloads(client, buyer):
+    """The URL in the quote must be fetchable, not a 404.
+
+    Regression guard for a bug that made the feature useless in its default
+    configuration: ``LocalStorage.url_for`` returns ``/files/<key>``, but the route
+    serving that path refused to serve the local backend on the reasoning that local
+    files are "dev only". Every attachment link the buyer clicked returned 404 — and
+    local storage is what the app uses by default, so this was the normal path, not
+    an edge case.
+    """
+
+    payload = b"%PDF-1.4 downloadable"
+    upload = client.post(
+        f"{public_path(buyer)}/attachments",
+        files={"file": ("brochure.pdf", payload, "application/pdf")},
+    ).json()
+
+    client.post(
+        f"{public_path(buyer)}/quote",
+        json={**COMPLETE_QUOTE, "attachment_keys": [upload["key"]]},
+    )
+
+    attachment = client.get(
+        f"/rfqs/{buyer['rfq_id']}/quotes", headers=buyer["headers"]
+    ).json()[0]["attachments"][0]
+
+    url = attachment["url"]
+    path = url.split("testserver", 1)[-1] if "testserver" in url else url
+
+    response = client.get(path)
+
+    assert response.status_code == 200, f"{url} returned {response.status_code}"
+    assert response.content == payload
+    # A useful content type, not a generic blob: a browser should preview a PDF.
+    assert response.headers["content-type"].startswith("application/pdf")
+
+
+def test_the_file_route_does_not_serve_arbitrary_paths(client, buyer):
+    """The proxy must not become a filesystem read primitive."""
+
+    for candidate in (
+        "/files/does-not-exist.pdf",
+        "/files/../../../../windows/win.ini",
+        "/files/invitations/../../../../etc/passwd",
+    ):
+        response = client.get(candidate)
+
+        assert response.status_code in (400, 404), f"{candidate} -> {response.status_code}"
 
 
 # ---------------------------------------------------------------- resubmission

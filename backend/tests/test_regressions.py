@@ -12,9 +12,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.mixins import utcnow
-from app.features.auth.model import User
 from app.features.auth.schema import RegisterRequest
 from app.features.auth.service import AuthService
 from app.features.comparison.service import ComparisonService
@@ -23,7 +21,6 @@ from app.features.invitation.model import Invitation
 from app.features.invitation.service import InvitationService
 from app.features.public_form.schema import PublicQuoteSubmit
 from app.features.public_form.service import PublicFormService
-from app.features.rfq.model import RFQ
 from app.features.rfq.schema import RFQCreate
 from app.features.rfq.service import RFQService
 from app.features.supplier.schema import SupplierCreate

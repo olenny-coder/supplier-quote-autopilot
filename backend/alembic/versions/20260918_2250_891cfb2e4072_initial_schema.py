@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: 219b4d8fc81f
+Revision ID: 891cfb2e4072
 Revises: 
-Create Date: 2026-09-18 21:04:33.179216
+Create Date: 2026-09-18 22:50:50.478205
 
 """
 from typing import Sequence
@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '219b4d8fc81f'
+revision: str = '891cfb2e4072'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -131,7 +131,7 @@ def upgrade() -> None:
     sa.Column('to_email', sa.String(length=255), nullable=False),
     sa.Column('subject', sa.String(length=512), nullable=False),
     sa.Column('body', sa.Text(), nullable=False),
-    sa.Column('llm_generated', sa.Integer(), server_default='0', nullable=False),
+    sa.Column('llm_generated', sa.Boolean(), server_default=sa.text('(false)'), nullable=False),
     sa.Column('requested_fields', sa.JSON(), nullable=True),
     sa.Column('provider_message_id', sa.String(length=255), nullable=True),
     sa.Column('error', sa.String(length=1000), nullable=True),
@@ -224,10 +224,10 @@ def upgrade() -> None:
     sa.Column('summary', sa.Text(), nullable=True),
     sa.Column('rationale', sa.Text(), nullable=True),
     sa.Column('risks', sa.JSON(), nullable=True),
-    sa.Column('is_conclusive', sa.Integer(), server_default='1', nullable=False),
+    sa.Column('is_conclusive', sa.Boolean(), server_default=sa.text('(false)'), nullable=False),
     sa.Column('llm_model', sa.String(length=128), nullable=True),
     sa.Column('computed_by', sa.String(length=32), server_default='engine', nullable=False),
-    sa.Column('is_current', sa.Integer(), server_default='1', nullable=False),
+    sa.Column('is_current', sa.Boolean(), server_default=sa.text('(true)'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['backup_quote_id'], ['supplier_quotes.id'], ondelete='SET NULL'),
@@ -250,7 +250,7 @@ def upgrade() -> None:
     sa.Column('decision', sa.String(length=16), server_default='approved', nullable=False),
     sa.Column('note', sa.Text(), nullable=True),
     sa.Column('recommended_quote_id', sa.Integer(), nullable=True),
-    sa.Column('overrode_recommendation', sa.Integer(), server_default='0', nullable=False),
+    sa.Column('overrode_recommendation', sa.Boolean(), server_default=sa.text('(false)'), nullable=False),
     sa.Column('awarded_total_cost', sa.Numeric(precision=16, scale=2), nullable=True),
     sa.Column('awarded_currency', sa.String(length=10), nullable=True),
     sa.Column('decided_at', sa.DateTime(timezone=True), nullable=True),

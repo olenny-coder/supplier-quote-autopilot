@@ -21,7 +21,6 @@ from sqlalchemy.orm import Session
 from agents.quote_parser import evaluate_completeness
 from agents.quote_parser.parser import parse_submission
 from app.ai.completer import get_completer
-from app.core.config import settings
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow

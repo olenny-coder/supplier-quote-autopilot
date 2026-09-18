@@ -33,7 +33,6 @@ from agents.quote_parser.normalize import normalize_payment_terms
 from agents.quote_parser.normalize import normalize_unit_text
 from agents.quote_parser.normalize import parse_currency
 from agents.quote_parser.normalize import parse_date
-from agents.quote_parser.normalize import parse_int
 from agents.quote_parser.normalize import parse_lead_time_days
 from agents.quote_parser.normalize import parse_money
 from agents.quote_parser.normalize import parse_moq

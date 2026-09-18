@@ -11,7 +11,6 @@ FastAPI runs ``def`` handlers in a threadpool. All genuinely latency-bound I/O
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
@@ -71,18 +70,3 @@ def get_db() -> Generator[Session, None, None]:
 
     finally:
         db.close()
-
-
-def warm_up() -> bool:
-    """Issue a trivial query so a scaled-to-zero Neon compute starts waking.
-
-    Called from ``/health``. Failure is reported, never raised: a cold database
-    should make the health check say so, not make the process crash.
-    """
-
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception:  # noqa: BLE001 - health check must never raise
-        return False

@@ -448,7 +448,7 @@ async def test_the_missing_fields_draft_only_asks_for_the_missing_fields():
 async def test_the_missing_fields_draft_claims_only_one_item_is_outstanding():
     # The copy must agree with the list above it. It used to hard-code "this is the
     # only item we still need" regardless of how many fields were outstanding, so a
-    # supplier with two gaps was told there was one — a false statement they can see
+    # supplier with two gaps was told there was one â€” a false statement they can see
     # through, sitting directly under the correct list.
     snapshot = _incomplete_snapshot()
     decision = _decide(snapshot, now=NOW + timedelta(hours=100))

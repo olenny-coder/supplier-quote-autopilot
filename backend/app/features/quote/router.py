@@ -11,15 +11,12 @@ submissions do — otherwise a hand-entered quote would silently skip the compar
 pipeline.
 """
 
-from decimal import Decimal
-
 from fastapi import APIRouter
 from fastapi import File
 from fastapi import Response
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from agents.quote_parser.completeness import label_for
 from app.core.dependencies import CurrentUser
 from app.core.dependencies import DBSession
 from app.core.exceptions import BadRequestError
@@ -257,27 +254,3 @@ def delete_quote(
     return Response(
         status_code=204,
     )
-
-
-@router.get(
-    "/quotes/{quote_id}/line-items",
-    response_model=QuoteSummary,
-)
-def get_quote_line_items(
-    quote_id: int,
-    user: CurrentUser,
-    db: DBSession,
-):
-    """Alias kept so a client that expects a line-item view still resolves."""
-
-    return get_quote(quote_id=quote_id, user=user, db=db)
-
-
-def _decimal(value) -> Decimal | None:
-    if value is None:
-        return None
-    return Decimal(str(value))
-
-
-def missing_labels(fields: list[str]) -> list[str]:
-    return [label_for(field) for field in fields]

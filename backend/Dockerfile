@@ -40,6 +40,13 @@ RUN uv sync --frozen --no-dev
 # but an explicit PYTHONPATH means a future refactor cannot silently break imports.
 ENV PYTHONPATH=/app/backend
 
+# Put the project virtualenv on PATH and call uvicorn directly rather than through
+# `uv run`. `uv run` re-checks the environment before executing, which means the
+# container's startup depends on uv's resolution logic and, in a misconfigured
+# case, on network access. Calling the binary skips all of that: startup is a
+# process exec, nothing more.
+ENV PATH="/app/backend/.venv/bin:$PATH"
+
 EXPOSE 8000
 
 # Render's free tier spins the service down after 15 idle minutes, so the
@@ -47,4 +54,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=60s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=8).status == 200 else 1)"
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Models are pre-downloaded by uv sync, so no layer here needs the network.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

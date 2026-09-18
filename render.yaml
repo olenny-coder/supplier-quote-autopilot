@@ -51,15 +51,23 @@ services:
     # "degraded") so UptimeRobot's ping counts as up and keeps the service warm.
     healthCheckPath: /health
 
-    autoDeployTrigger: commit
+    # `autoDeploy`, not `autoDeployTrigger`: the short form has been in the
+    # blueprint schema far longer, and an unrecognised key fails blueprint
+    # validation outright rather than being ignored.
+    autoDeploy: true
 
     envVars:
       # ---------------------------------------------------------------- runtime
       - key: ENV
         value: production
 
-      - key: PYTHON_VERSION
-        value: "3.13.7"
+      # NOTE: PYTHON_VERSION is deliberately NOT set here. `backend/.python-version`
+      # already pins the version, and Render's native Python runtime reads that file.
+      # Declaring a second, different value (it used to say 3.13.7 while the file
+      # said 3.13) makes the effective version ambiguous, and if Render cannot
+      # resolve the exact patch it pins, the build fails before anything runs.
+      # One source of truth wins. If a build ever complains about the Python
+      # version, delete backend/.python-version and Render will use its default.
 
       # --------------------------------------------------------------- database
       # Set in the dashboard; Render must not store these in the repo.

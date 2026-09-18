@@ -6,13 +6,11 @@ from fastapi import Response
 from app.core.dependencies import CurrentUser
 from app.core.dependencies import DBSession
 from app.core.exceptions import BadRequestError
-from app.features.invitation.schema import InvitationCreate
 from app.features.invitation.schema import InvitationResponse
 from app.features.invitation.schema import InvitationsBulkCreate
 from app.features.invitation.schema import ResendResponse
 from app.features.invitation.service import InvitationService
 from app.features.followup.repository import followup_label
-from app.features.rfq.service import RFQService
 
 router = APIRouter(
     tags=["Invitations"],
@@ -101,8 +99,6 @@ def resend_invitation(
     )
 
     followup = InvitationService.resend(db=db, user_id=user.id, invitation_id=invitation_id)
-
-    sent = followup.status == "sent"
 
     return ResendResponse(
         invitation_id=invitation.id,

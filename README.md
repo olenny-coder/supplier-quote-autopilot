@@ -882,6 +882,7 @@ costs nothing.
 | File | Covers |
 | --- | --- |
 | `test_acceptance.py` | The whole product through the public HTTP API: create an RFQ → three suppliers → three unique links → submit (one complete, one partial, one silent) → statuses → scheduler chases both → approve reminders → compare → CSV export → human award → dashboard roll-up. Plus the AI-optional path and deadline-driven expiry. |
+| `test_postgres_compat.py` | Compiles every representative query and the whole schema against the **PostgreSQL** dialect. The suite runs on SQLite, so without this a whole class of "passes locally, 500s in production" bug is invisible — including `IS true` against an integer column, which would have taken down the entire comparison feature. Needs no database. |
 | `test_public_form.py` | The unauthenticated surface, adversarially: unknown/expired/withdrawn/mismatched links, the honeypot, both rate-limit windows, oversized and disallowed uploads, claiming another supplier's attachment, resubmission amending rather than duplicating, free-text parsing, and that a supplier's question is escalated rather than chased. |
 | `test_regressions.py` | Bugs found during development, with the failure mode recorded in each docstring. |
 | `test_comparison_engine.py` | FX, Incoterms rebasing, unit conversion, landed-cost arithmetic, MOQ/payment-term scoring, weighting, ranking, determinism, CSV export. |

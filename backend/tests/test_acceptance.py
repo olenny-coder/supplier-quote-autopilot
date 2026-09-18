@@ -116,7 +116,7 @@ def test_full_acceptance_flow(client, db_session):
 
     nova = by_supplier["Nova Metals"]
     halcyon = by_supplier["Halcyon Fasteners"]
-    ironbridge = by_supplier["Ironbridge Supply"]
+    # Ironbridge is looked up by name later, once its silence matters.
 
     # ------------------------------------------------- 3. public form (no auth)
     preview = client.get(f"/public/invitations/{rfq_id}/{nova['token']}")

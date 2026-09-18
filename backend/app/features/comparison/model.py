@@ -14,6 +14,7 @@ auto-awarded**. A recommendation is a suggestion; the only way an RFQ reaches
 from datetime import datetime
 from decimal import Decimal
 
+from sqlalchemy import Boolean
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
@@ -21,6 +22,7 @@ from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import String
 from sqlalchemy import Text
+from sqlalchemy import text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -106,11 +108,17 @@ class Comparison(TimestampMixin, Base):
     )
 
     #: False when the run could only rank a subset (missing prices, no FX rate).
+    #:
+    #: Boolean, NOT Integer. These flags are filtered with ``.is_(True)``, and
+    #: SQLAlchemy compiles that to ``col IS true`` — which PostgreSQL rejects
+    #: outright on an integer column ("argument of IS must be boolean"). Storing
+    #: 0/1 works fine on SQLite, so the mistake is invisible in tests and fails
+    #: only against the production database.
     is_conclusive: Mapped[bool] = mapped_column(
-        Integer,
+        Boolean,
         nullable=False,
-        default=1,
-        server_default="1",
+        default=True,
+        server_default=text("false"),
     )
 
     llm_model: Mapped[str | None] = mapped_column(
@@ -125,11 +133,13 @@ class Comparison(TimestampMixin, Base):
         server_default="engine",
     )
 
+    #: See the note on ``is_conclusive``: Boolean, because it is filtered with
+    #: ``.is_(True)`` in repository.latest_for_rfq.
     is_current: Mapped[bool] = mapped_column(
-        Integer,
+        Boolean,
         nullable=False,
-        default=1,
-        server_default="1",
+        default=True,
+        server_default=text("true"),
         index=True,
     )
 
@@ -212,10 +222,10 @@ class Approval(TimestampMixin, Base):
 
     #: True when the buyer approved a quote other than the recommendation.
     overrode_recommendation: Mapped[bool] = mapped_column(
-        Integer,
+        Boolean,
         nullable=False,
-        default=0,
-        server_default="0",
+        default=False,
+        server_default=text("false"),
     )
 
     #: Landed cost of the awarded quote at decision time.

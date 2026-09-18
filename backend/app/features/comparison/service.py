@@ -209,7 +209,7 @@ class ComparisonService:
             summary=summary,
             rationale=result.rationale,
             risks=risks,
-            is_conclusive=1 if result.is_conclusive else 0,
+            is_conclusive=bool(result.is_conclusive),
             llm_model=llm_model,
             computed_by=computed_by,
             is_current=True,
@@ -399,12 +399,10 @@ class ComparisonService:
             decision=decision,
             note=note,
             recommended_quote_id=recommended_id,
-            overrode_recommendation=(
-                1
-                if decision == "approved"
+            overrode_recommendation=bool(
+                decision == "approved"
                 and recommended_id is not None
                 and recommended_id != quote.id
-                else 0
             ),
             awarded_total_cost=total_cost if decision == "approved" else None,
             awarded_currency=(

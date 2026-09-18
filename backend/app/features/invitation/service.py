@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from agents.quote_parser.completeness import label_for
 from app.core.config import settings
 from app.core.email import EmailMessage
-from app.core.email import send_email_message
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import ConflictError
 from app.core.exceptions import ExternalServiceError

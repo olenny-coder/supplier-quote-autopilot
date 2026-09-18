@@ -130,7 +130,7 @@ def main() -> int:
             rfq = rfqs[0]
 
             print(BAR)
-            print(f"  SUPPLIER FORM LINKS  (no login — open on a phone)")
+            print("  SUPPLIER FORM LINKS  (no login — open on a phone)")
             print(f"  RFQ {rfq['rfq_number']} — {rfq['item_name']}")
             print(BAR)
 

@@ -16,12 +16,14 @@ object the buyer can inspect rather than an invisible side effect.
 
 from datetime import datetime
 
+from sqlalchemy import Boolean
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import JSON
 from sqlalchemy import String
 from sqlalchemy import Text
+from sqlalchemy import text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -112,11 +114,14 @@ class FollowUp(TimestampMixin, Base):
     )
 
     #: True when the copy came from the LLM rather than the deterministic template.
+    #: Boolean rather than Integer 0/1: SQLite accepts either, but a real boolean
+    #: column is what the comparison flags need for `IS true` filters to work on
+    #: PostgreSQL, and mixing the two styles across the schema invites the mistake.
     llm_generated: Mapped[bool] = mapped_column(
-        Integer,
+        Boolean,
         nullable=False,
-        default=0,
-        server_default="0",
+        default=False,
+        server_default=text("false"),
     )
 
     #: The specific fields this message asked for. Machine-checkable, so the

@@ -51,6 +51,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-groups
 
+      - name: Lint (correctness rules)
+        # F and E9 only — see [tool.ruff.lint] in pyproject.toml. This is what caught
+        # an unused-import sweep plus a test file written in the wrong encoding.
+        run: uv run ruff check . ../agents ../comparison
+
       - name: Run tests
         env:
           DATABASE_URL: sqlite:///./ci-test.db
@@ -178,13 +183,17 @@ jobs:
           echo "docker-compose.yml is valid"
 
       - name: Validate render.yaml
-        run: |
-          python - <<'PY'
+        # Needs PyYAML. Install it rather than assuming the runner image has it —
+        # the fallback below skips the check silently, which would mean the
+        # validation never actually ran.
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+      - run: |
+          python3 - <<'PY'
           import sys
           try:
               import yaml
           except ImportError:
-              print("pyyaml not available; skipping render.yaml parse")
+              print("::warning::pyyaml unavailable; render.yaml was NOT validated")
               sys.exit(0)
           with open("render.yaml") as handle:
               data = yaml.safe_load(handle)
@@ -197,6 +206,24 @@ jobs:
           print("render.yaml is valid")
           PY
 
+      - name: Validate the Vercel configs are valid JSON with SPA rewrites
+        # A malformed vercel.json or a missing rewrite is the difference between a
+        # working deep link and a 404 on refresh, and neither shows up in a local
+        # build.
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          for path in ("frontend/vercel.json", "public_form/vercel.json"):
+              data = json.loads(pathlib.Path(path).read_text())
+              rewrites = data.get("rewrites") or []
+              assert rewrites, f"{path} has no rewrites; deep links will 404"
+              destinations = {r.get("destination") for r in rewrites}
+              assert "/index.html" in destinations, f"{path} does not rewrite to /index.html"
+              print(f"{path}: ok ({len(rewrites)} rewrite rule)")
+          PY
+
   deploy:
     name: Trigger deploys
     runs-on: ubuntu-latest
@@ -205,17 +232,23 @@ jobs:
 
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
+    # The deploy hooks are optional: Render and Vercel both deploy from the GitHub
+    # integration, so a repo without them still deploys. They are mapped to env here
+    # rather than referenced directly in the step `if`, because the `secrets`
+    # context is not reliably available in a step-level condition — GitHub rejects
+    # the workflow rather than skipping the step.
+    env:
+      RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+      VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+
     steps:
       - name: Trigger Render deploy
-        # Render deploys automatically from the GitHub integration; this hook is for
-        # repos where auto-deploy is disabled or the service has been suspended.
-        # The step is skipped (not failed) when the secret is absent.
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
-        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+        if: env.RENDER_DEPLOY_HOOK != ''
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
 
       - name: Trigger Vercel deploys
-        if: ${{ secrets.VERCEL_DEPLOY_HOOK != '' }}
-        run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+        if: env.VERCEL_DEPLOY_HOOK != ''
+        run: curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"
 
       - name: Summary
         run: |

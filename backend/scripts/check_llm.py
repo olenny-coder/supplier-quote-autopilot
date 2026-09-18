@@ -13,11 +13,9 @@ application uses. A green result here means the app's AI features will work.
 
 import sys
 
-from app.ai.completer import llm_available
 from app.core.config import settings
 from app.core.exceptions import LLMUnavailableError
 from app.core.llm_client import get_llm_client
-from app.core.mixins import utcnow
 
 PROBE_SYSTEM = "You reply with JSON only. No prose, no markdown fences."
 PROBE_USER = 'Return exactly {"ok": true, "vendor": "<your model name>"} and nothing else.'
