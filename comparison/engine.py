@@ -70,9 +70,10 @@ def normalize_quote(
     # applied to a copy rather than only to the result. Setting it on the result and
     # leaving the quote alone was the bug that made this fallback look wired up while
     # the tax stayed at zero.
-    billing_quote = (
-        quote if gst_rate == quote.gst_rate else quote.model_copy(update={"gst_rate": gst_rate})
-    )
+    if gst_rate == quote.gst_rate:
+        billing_quote = quote
+    else:
+        billing_quote = quote.model_copy(update={"gst_rate": gst_rate})
 
     result = QuoteResult(
         quote_id=quote.quote_id,

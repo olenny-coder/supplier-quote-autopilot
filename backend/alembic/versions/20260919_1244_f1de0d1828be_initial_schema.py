@@ -1,7 +1,30 @@
 """initial schema
 
+The whole schema in one migration, because nothing has been deployed yet: this
+repository's first release is the services-first one, so there is no earlier
+revision in the wild to upgrade from and a chain of incremental migrations would be
+history for history's sake.
+
+Two things to know before editing it:
+
+* **The body is generated, not written.** Regenerate it with
+  ``alembic revision --autogenerate`` after changing a model, and let CI's
+  ``alembic check`` step prove the two still agree. Hand-editing the DDL here would
+  pass that check while drifting from the models.
+* **It runs on both engines.** ``env.py`` turns on ``render_as_batch`` for SQLite,
+  which rewrites tables instead of altering them and is a no-op on PostgreSQL. The
+  index names are wrapped in ``batch_op.f()`` for that reason. Whether the emitted
+  DDL is valid PostgreSQL is checked by ``tests/test_postgres_compat.py`` and by
+  rendering this file offline with ``alembic upgrade head --sql`` against a
+  PostgreSQL URL.
+
+Column defaults matter here: ``rfqs.currency`` and ``supplier_quotes.currency``
+default to ``SGD``, and ``unit`` to ``per job``, matching the application's own
+defaults. A row inserted without them should look like a row this application
+created, not like a row from a goods-era version of it.
+
 Revision ID: f1de0d1828be
-Revises: 
+Revises:
 Create Date: 2026-09-19 12:44:43.436638
 
 """
