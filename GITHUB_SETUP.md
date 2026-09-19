@@ -306,7 +306,12 @@ operations.
 2. Copy **both** connection strings:
    - **Pooled** — the hostname contains `-pooler`. This becomes `DATABASE_URL`.
    - **Direct** — no `-pooler`. This becomes `DATABASE_URL_DIRECT`, used only by Alembic.
-3. Append `?sslmode=require` to both.
+3. **Paste them exactly as Neon gives them.** Neon's connection widget includes
+   `?sslmode=require`; if your copy somehow does not, add it — Neon refuses a non-SSL
+   connection. You do **not** need to touch the scheme: the app rewrites a bare
+   `postgresql://` onto `postgresql+psycopg://` for you, because SQLAlchemy would otherwise
+   reach for `psycopg2`, which is not installed, and the service would crash at boot with
+   `ModuleNotFoundError: No module named 'psycopg2'`.
 
 The two strings exist because Neon's pooler runs PgBouncer in transaction mode; the app is
 happy with that, but Alembic's DDL and `alembic_version` bookkeeping are not. Run migrations
@@ -315,18 +320,39 @@ through the direct string.
 ### 5b. Render (API) — <https://render.com>
 
 1. **New → Blueprint**, connect the repository. Render reads `render.yaml` from the root.
-2. Fill in every variable marked `sync: false`: the two database URLs, `BACKEND_URL`,
-   `FRONTEND_URL`, `PUBLIC_FORM_URL`, `ALLOWED_ORIGINS`, `LLM_API_KEY`, `EMAIL_API_KEY`,
-   `MAIL_FROM`, and the `S3_*` values.
-3. `SECRET_KEY` and `SCHEDULER_SECRET` are generated for you — read them from the dashboard
-   afterwards. You need `SCHEDULER_SECRET` for the external cron in step 5e.
-4. Deploy, then run the migrations from your machine:
+2. Fill in every variable marked `sync: false`. These must be right for the service to boot:
+   `DATABASE_URL`, `DATABASE_URL_DIRECT`. These must be right for invitation links to work:
+   `BACKEND_URL`, `FRONTEND_URL`, `PUBLIC_FORM_URL`, `ALLOWED_ORIGINS`.
+3. **Decide about email and attachments now, not later.** `render.yaml` sets
+   `EMAIL_PROVIDER=resend` and `STORAGE_BACKEND=s3`, because leaving them off is wrong in
+   production — but neither is usable without credentials, and **neither fails at boot**. The
+   service starts, `/health` reports `"configured": false` for each, and the first invitation
+   email or file upload is what breaks:
 
-   ```bash
+   | If you have… | Set |
+   | --- | --- |
+   | A free [Resend](https://resend.com) key (3,000/month) and a verified sending domain | `EMAIL_API_KEY`, `MAIL_FROM` |
+   | Nothing yet | `EMAIL_PROVIDER=console` — messages are logged instead of sent, and you copy each supplier's link from the dashboard's suppliers tab |
+   | A [Cloudflare R2](https://developers.cloudflare.com/r2/) bucket (free) | `S3_ENDPOINT_URL`, `S3_BUCKET`, `S3_REGION=auto`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` |
+   | Nothing yet | `STORAGE_BACKEND=local` — uploads work but do not survive a redeploy, and the app logs a warning saying so |
+
+4. `LLM_API_KEY` is **optional**; step 5f says where it goes.
+5. `SECRET_KEY` and `SCHEDULER_SECRET` are generated for you — read them from the dashboard
+   afterwards. You need `SCHEDULER_SECRET` for the external cron in step 5e.
+6. Deploy, then run the migrations from your machine (`$env:` is PowerShell; on macOS or Linux
+   use `DATABASE_URL_DIRECT="…" uv run alembic upgrade head`):
+
+   ```powershell
    cd backend
-   DATABASE_URL_DIRECT="postgresql+psycopg://…@ep-xxx.REGION.aws.neon.tech/DBNAME?sslmode=require" \
-     uv run alembic upgrade head
+   $env:DATABASE_URL_DIRECT = "postgresql://…@ep-xxx.REGION.aws.neon.tech/DBNAME?sslmode=require"
+   .\.venv\Scripts\python.exe -m alembic upgrade head   # or: uv run alembic upgrade head
+   .\.venv\Scripts\python.exe -m alembic current        # -> f1de0d1828be (head)
    ```
+
+   Setting only `DATABASE_URL_DIRECT` is enough: `alembic/env.py` reads it in preference to
+   `DATABASE_URL`. A first boot also works with no manual step, because the app calls
+   `Base.metadata.create_all` — but that only *adds* missing tables and never alters or drops,
+   so it is a convenience rather than the source of truth.
 
 The blueprint provisions **one** web service and nothing else, on purpose: a Render Cron Job
 or Background Worker would be a second billable service and would break the 750 free instance
@@ -382,6 +408,28 @@ scheme included, no trailing slash, comma-separated.
    twice in quick succession is safe: a second run will not create a duplicate draft for a
    supplier who already has one pending.
 
+### 5f. The AI key (Groq) — optional, and one place only
+
+The product is designed to run without an AI key: parsing, follow-up drafting and the
+comparison rationale all have deterministic implementations, and `/health` reports
+`"llm": {"configured": false}` rather than pretending otherwise. A key makes the copy more
+fluent and the parsing more tolerant of loosely written notes.
+
+1. **Get one** at <https://console.groq.com/keys> → *Create API Key*. It starts with `gsk_`.
+2. **Put it in Render only** — Dashboard → your service → **Environment** → `LLM_API_KEY` →
+   Save. Render asks for it on the Blueprint creation form too.
+3. **Do not put it in Vercel.** The two SPAs never call the model, and Vite would inline it
+   into a JavaScript bundle that any visitor can download and read. It does not belong in Neon
+   either.
+4. Locally, `.\set-llm-key.cmd` from the repository root prompts for it and writes
+   `backend/.env`. `dev.cmd llm` then sends one real request to confirm the key and the model
+   id both work.
+5. `LLM_BASE_URL`, `LLM_MODEL=openai/gpt-oss-120b` and `LLM_REASONING_EFFORT=low` are already
+   set correctly. **Change the model only if you change all three.** `openai/gpt-oss-120b` is a
+   reasoning model: at the provider's default trace length Groq answers `HTTP 400
+   json_validate_failed` and every AI feature silently reverts to its fallback, which looks
+   like the key not working.
+
 ---
 
 ## 6 · Watch the first CI run
@@ -391,7 +439,7 @@ pull request. Its jobs:
 
 | Job | What it proves |
 | --- | --- |
-| `Backend tests` | `ruff` (correctness rules `F` and `E9`), the full pytest suite on Python 3.13, `alembic check` (models versus migration), `requirements.txt` versus `uv.lock` with no drift, and an assertion that no `smtplib` import exists anywhere. |
+| `Backend tests` | `ruff` (correctness rules `F` and `E9`), the full pytest suite on Python 3.13, `alembic check` (models versus migration), the **seed script** end to end with `--check`, `requirements.txt` versus `uv.lock` with no drift, and an assertion that no `smtplib` import exists anywhere. |
 | `Buyer dashboard build` | `npm ci`, lint, and a production build of `frontend/`. |
 | `Supplier form build` | The same for `public_form/`. |
 | `Compose config is valid` | `docker compose config` parses `.env.example`, `render.yaml` is a valid free-plan web service blueprint, and both `vercel.json` files have SPA rewrites. |

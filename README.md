@@ -1,4 +1,4 @@
-﻿# Supplier Quote Autopilot — open-source RFQ and quote comparison for facilities management and building services procurement
+# Supplier Quote Autopilot — open-source RFQ and quote comparison for facilities management and building services procurement
 
 Run a request for quotation, give every supplier their own private web form, chase the
 ones who go quiet automatically, compare what comes back on total cost rather than
@@ -526,22 +526,36 @@ DATABASE_URL_DIRECT=postgresql+psycopg://USER:PASSWORD@ep-xxx.REGION.aws.neon.te
 
 The **pooled** hostname contains `-pooler` and is what the app uses. The **direct** one is
 used only by Alembic, because Neon's pooler runs PgBouncer in transaction mode and
-Alembic's DDL and `alembic_version` bookkeeping do not tolerate that reliably. Append
-`?sslmode=require` to both. Free tier: 0.5 GB storage, 100 CU-hours/month, and compute that
-**scales to zero after 5 idle minutes**, so the first request after a quiet period takes a
-few seconds. `/health` reports the database state so a cold start is distinguishable from
-an outage.
+Alembic's DDL and `alembic_version` bookkeeping do not tolerate that reliably. Neon's
+connection widget includes `?sslmode=require` — if your copy somehow does not, add it, since
+Neon refuses a non-SSL connection. Otherwise **paste both strings exactly as given**: the app
+rewrites a bare `postgresql://` onto `postgresql+psycopg://` itself, because SQLAlchemy would
+otherwise look for `psycopg2`, which this project does not install. Free tier: 0.5 GB storage,
+100 CU-hours/month, and compute that **scales to zero after 5 idle minutes**, so the first
+request after a quiet period takes a few seconds. `/health` reports the database state so a
+cold start is distinguishable from an outage.
 
 **2 · Render (API).** `render.yaml` is committed at the repository root and provisions the
 backend with variables pre-declared.
 
 1. Render dashboard → **New → Blueprint** → connect the repository.
-2. Fill in the variables marked `sync: false` — the two database URLs, `BACKEND_URL`,
-   `FRONTEND_URL`, `PUBLIC_FORM_URL`, `ALLOWED_ORIGINS`, `LLM_API_KEY`, `EMAIL_API_KEY`,
-   `MAIL_FROM`, and the `S3_*` values.
-3. `SECRET_KEY` and `SCHEDULER_SECRET` are **auto-generated** — read them from the
+2. Fill in the variables marked `sync: false`. The two that must be right for the service to
+   boot are `DATABASE_URL` and `DATABASE_URL_DIRECT`; the four that must be right for
+   invitation links to work are `BACKEND_URL`, `FRONTEND_URL`, `PUBLIC_FORM_URL` and
+   `ALLOWED_ORIGINS`.
+3. **Decide on email and attachments before you deploy.** `render.yaml` turns both on —
+   `EMAIL_PROVIDER=resend` and `STORAGE_BACKEND=s3` — because leaving them off is wrong in
+   production. But `resend` needs `EMAIL_API_KEY` and a verified `MAIL_FROM`, and `s3` needs
+   the `S3_*` credentials, and **neither fails at boot**: the service starts, `/health` reports
+   `"configured": false` for each, and the first supplier invitation or file upload is what
+   breaks. Either supply the credentials, or switch both off for a first run:
+   `EMAIL_PROVIDER=console` (messages are logged, and you copy each supplier's link from the
+   dashboard's suppliers tab) and `STORAGE_BACKEND=local` (uploads work but do not survive a
+   redeploy, and the app logs a warning saying so).
+4. `LLM_API_KEY` is **optional** — see [Where the AI key goes](#where-the-ai-key-goes).
+5. `SECRET_KEY` and `SCHEDULER_SECRET` are **auto-generated** — read them from the
    dashboard afterwards. You need `SCHEDULER_SECRET` for the external cron.
-4. Deploy.
+6. Deploy.
 
 If you would rather not use the blueprint, the manual Web Service settings are: root
 directory `backend`, runtime Python 3, build command
@@ -549,17 +563,21 @@ directory `backend`, runtime Python 3, build command
 `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check path `/health`, plan
 free. `requirements.txt` is **generated from `uv.lock`**, and CI fails if the two drift.
 
-**3 · Run the migrations against the direct string**, once, from your machine:
+**3 · Run the migrations against the direct string**, once, from your machine. Set only
+`DATABASE_URL_DIRECT` — `alembic/env.py` reads it first:
 
-```bash
+```powershell
 cd backend
-DATABASE_URL_DIRECT="postgresql+psycopg://…@ep-xxx.REGION.aws.neon.tech/DBNAME?sslmode=require" \
-  uv run alembic upgrade head
+$env:DATABASE_URL_DIRECT = "postgresql://…@ep-xxx.REGION.aws.neon.tech/DBNAME?sslmode=require"
+.\.venv\Scripts\python.exe -m alembic upgrade head     # or: uv run alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic current          # -> f1de0d1828be (head)
 ```
 
-`alembic/env.py` reads `DATABASE_URL_DIRECT` first, so setting only that is enough. The app
-also runs `Base.metadata.create_all` at startup, so a first boot works with no manual step
-— that is a convenience, not the source of truth: `create_all` only ever *adds* missing
+That is the Windows form of the same two commands. In bash or zsh it is
+`DATABASE_URL_DIRECT="…" uv run alembic upgrade head`.
+
+The app also runs `Base.metadata.create_all` at startup, so a first boot works with no manual
+step — that is a convenience, not the source of truth: `create_all` only ever *adds* missing
 tables and never alters or drops, so it cannot conflict with Alembic. Once migrations
 exist, Alembic is the authority.
 
@@ -601,6 +619,33 @@ ALLOWED_ORIGINS=https://your-dashboard.vercel.app,https://your-supplier-form.ver
 The full API — every endpoint, request body, response shape, status code and guardrail — is
 in **[docs/API.md](docs/API.md)**, and the app serves interactive documentation at `/docs`
 and `/redoc`.
+
+### Where the AI key goes
+
+Get a free key at <https://console.groq.com/keys> → **Create API Key**. It starts with `gsk_`.
+It belongs in **two** of the four places below, and never in the third:
+
+| Where | How | Why |
+| --- | --- | --- |
+| **This machine** (dev) | `.\set-llm-key.cmd` from the repository root, or set `LLM_API_KEY=` in `backend/.env` | `set-llm-key.cmd` prompts for the key and writes it for you. Never paste a key into a shell command you might save in your history, and never into a chat window. |
+| **Render** (production) | Dashboard → your service → **Environment** → `LLM_API_KEY` → paste → **Save** (it redeploys) | The API server is the only thing that calls the model. With the Blueprint, Render asks for it on the creation form. |
+| **Vercel** | **Nowhere.** | The two SPAs never talk to Groq. A key in a Vercel environment variable would be inlined into a JavaScript bundle that any visitor can download and read. |
+| **Neon** | **Nowhere.** | It is a database. |
+
+Three settings travel together and are already correct in `render.yaml` and `.env.example`:
+`LLM_BASE_URL=https://api.groq.com/openai/v1`, `LLM_MODEL=openai/gpt-oss-120b`, and
+`LLM_REASONING_EFFORT=low`. **Change the model only if you change all three.** The reasoning
+setting is not cosmetic: `gpt-oss-120b` writes a reasoning trace before its JSON answer, and
+at the provider's default trace length Groq rejects the call with `HTTP 400
+json_validate_failed` — which does not surface as an error, it silently drops quote parsing,
+follow-up drafting and comparison summaries onto their deterministic fallbacks.
+
+**The key is genuinely optional.** With `LLM_API_KEY` empty the app works end to end: quote
+parsing uses labelled-line extraction, follow-up drafting uses templates that follow the same
+writing rules, and the comparison rationale is generated from the scoring run. `/health`
+reports `"llm": {"configured": false}`, which is honest degradation rather than a broken
+state. To check a key without deploying anything, run `dev.cmd llm` — it sends one real
+request and tells you whether a failure is a bad key or a retired model id.
 
 ---
 
