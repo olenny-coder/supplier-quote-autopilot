@@ -7,6 +7,10 @@
  * class strings so both paths stay identical, and it lives in `lib/` rather than
  * beside the components so the UI kit keeps exporting components only (which is
  * what React Fast Refresh needs).
+ *
+ * `sm` and `md` are the dense desktop sizes. `lg` exists for anything a thumb is
+ * expected to hit on a phone: 44px is the minimum touch target both Apple and
+ * Google publish, and `sm` is 36px — fine with a mouse, a coin-toss with a thumb.
  */
 
 const buttonBase =
@@ -15,6 +19,7 @@ const buttonBase =
 const buttonSizes = {
   sm: "px-3.5 py-2",
   md: "px-5 py-2.5",
+  lg: "min-h-11 px-5 py-2.5",
 };
 
 const buttonVariants = {

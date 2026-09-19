@@ -68,8 +68,13 @@ export default function ErrorPage({
                 {buyerPreview.buyer_contact_email ? (
                   <li>
                     <span className="text-subtle">Email: </span>
+                    {/* `break-all` because this is the one thing a supplier needs
+                        from a dead link, and an address longer than the ~30
+                        characters that fit at 320px would otherwise run past the
+                        card — clipped, since this app sets `overflow-x: hidden` on
+                        the body, so there is no way to scroll to the rest. */}
                     <a
-                      className="font-semibold text-primary underline"
+                      className="break-all font-semibold text-primary underline"
                       href={`mailto:${buyerPreview.buyer_contact_email}`}
                     >
                       {buyerPreview.buyer_contact_email}
@@ -80,7 +85,7 @@ export default function ErrorPage({
                   <li>
                     <span className="text-subtle">Phone: </span>
                     <a
-                      className="font-semibold text-primary underline"
+                      className="break-all font-semibold text-primary underline"
                       href={`tel:${String(buyerPreview.buyer_contact_phone).replace(/\s+/g, "")}`}
                     >
                       {buyerPreview.buyer_contact_phone}

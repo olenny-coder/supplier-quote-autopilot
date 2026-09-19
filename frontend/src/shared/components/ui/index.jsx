@@ -5,8 +5,17 @@
 
 import { buttonClass } from "@/shared/lib/button";
 
+/**
+ * The one input style, at 16px on phones.
+ *
+ * iOS Safari zooms the whole viewport when a focused control's font-size is below
+ * 16px, and it does not zoom back out afterwards — so at `text-sm` every field in
+ * this app cost the buyer a pinch-to-zoom, on a page whose sticky header then
+ * covered the field they had just tapped. 16px on small screens avoids it, and
+ * `sm:text-sm` keeps the denser look on a desktop where nothing zooms.
+ */
 export const inputClass =
-  "w-full rounded-xl border border-border-default bg-surface-inset px-4 py-2.5 text-sm text-content placeholder:text-subtle transition focus:border-primary focus:bg-surface focus:outline-none focus:ring-2 focus:ring-ring/50";
+  "w-full rounded-xl border border-border-default bg-surface-inset px-4 py-2.5 text-base text-content placeholder:text-subtle transition focus:border-primary focus:bg-surface focus:outline-none focus:ring-2 focus:ring-ring/50 sm:text-sm";
 
 export function FormField({ label, hint, required, error, children }) {
   return (

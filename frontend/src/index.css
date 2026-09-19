@@ -177,6 +177,14 @@ body,
   padding: 0;
 }
 
+html {
+  /* iOS Safari inflates text in landscape when this is not set, which reflows
+     single-column layouts and can push content out of view. The supplier form
+     already pins it; this is the same rule for the dashboard. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   color: var(--content);
   background-color: var(--bg);
@@ -286,7 +294,14 @@ table {
  */
 @media print {
   @page {
-    margin: 12mm;
+    margin: 10mm;
+    /* Landscape, because the comparison table is 15 columns wide. Portrait A4
+       leaves about 190mm of printable width and the table's own content needs far
+       more, so everything from the normalised rate rightward — the mobilisation
+       time, payment terms, validity, defect liability, the per-criterion scores and
+       the risk flags — was simply cut off the paper. Browsers do not paginate
+       horizontally, so there is no second page to find it on. */
+    size: A4 landscape;
   }
 
   /* Chrome, navigation and every interactive control. */
@@ -358,6 +373,36 @@ table {
     width: 100% !important;
     min-width: 0 !important;
     font-size: 9pt;
+    /* `width: 100%` alone does not beat a cell's min-content width, which is what
+       was doing the clipping: 15 columns of `whitespace-nowrap` headers with 40px
+       of horizontal padding each comes to roughly 1900px no matter what the table
+       element is told. Letting the headers wrap and shrinking the padding brings
+       min-content down under a landscape page. */
+    table-layout: fixed;
+  }
+
+  table th,
+  table td {
+    padding-left: 3pt !important;
+    padding-right: 3pt !important;
+  }
+
+  /* Every header in these tables is `whitespace-nowrap` for the screen, where a
+     wrapped header would make the columns jagged. On paper the trade is the other
+     way round: a two-line header prints, a clipped column does not. */
+  table th {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  table td {
+    overflow-wrap: anywhere;
+  }
+
+  /* A pinned first column means nothing on paper and would print cells on top of
+     one another, since the printed table has no horizontal scroll to pin against. */
+  .sticky {
+    position: static !important;
   }
 
   /* Repeat table headers on every page and never split a row across pages. */

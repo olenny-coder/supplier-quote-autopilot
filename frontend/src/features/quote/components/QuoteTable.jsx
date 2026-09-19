@@ -517,6 +517,7 @@ function QuoteTable({
                   column={column}
                   sort={sort}
                   onSort={toggleSort}
+                  sticky={index === 0}
                 />
               ))}
             </tr>
@@ -546,7 +547,7 @@ function QuoteTable({
                 return (
                   <tr
                     key={quote.id}
-                    className={`align-top transition ${
+                    className={`group align-top transition ${
                       isBest(quote) ? "bg-success-soft/40" : "hover:bg-surface-hover"
                     }`}
                   >
@@ -555,6 +556,8 @@ function QuoteTable({
                         key={column.label || `column-${index}`}
                         className={`px-5 py-4 ${
                           column.key ? "whitespace-nowrap" : ""
+                        } ${
+                          index === 0 ? STICKY_FIRST_CELL(isBest(quote)) : ""
                         }`}
                       >
                         {column.cell(quote, { missingLabels })}
@@ -637,18 +640,43 @@ function AccreditationCell({ quote, required = [] }) {
   );
 }
 
-function SortableHeader({ column, sort, onSort }) {
+/**
+ * Classes for the pinned first column.
+ *
+ * This table is 1850px wide and scrolls. On a 1440px screen the visible window is
+ * about 1230px, so scrolling right to reach the money columns pushed the supplier
+ * cell off-screen and every row read as anonymous — the buyer could see a price
+ * but not whose price it was. The first column now stays put.
+ *
+ * The background must be **opaque**. A sticky cell paints above the cells sliding
+ * under it, so a translucent tint — the row's `bg-success-soft/40` for the leading
+ * quote — would let the moving content show through the pinned cell and defeat the
+ * whole point. `bg-success-soft` is the opaque token, so the leading row's pinned
+ * cell is a slightly stronger tint than the rest of that row: a deliberate
+ * compromise, and far better than an unreadable column.
+ */
+const STICKY_FIRST_CELL = (isBest) =>
+  `sticky left-0 z-10 ${
+    isBest ? "bg-success-soft" : "bg-surface group-hover:bg-surface-hover"
+  }`;
+
+function SortableHeader({ column, sort, onSort, sticky = false }) {
   const base =
     "whitespace-nowrap px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-subtle";
 
+  // z-20 so the pinned header stays above the pinned body cells.
+  const className = sticky
+    ? `${base} sticky left-0 z-20 bg-surface-2`
+    : base;
+
   if (!column.sortable) {
-    return <th className={base}>{column.label}</th>;
+    return <th className={className}>{column.label}</th>;
   }
 
   const isActive = sort.key === column.key;
 
   return (
-    <th className={base}>
+    <th className={className}>
       <button
         type="button"
         onClick={() => onSort(column.key)}

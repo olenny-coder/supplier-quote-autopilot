@@ -100,6 +100,24 @@ export function loadCaptchaScript(provider) {
 }
 
 /**
+ * The widget size each provider should render at.
+ *
+ * Both providers default to a fixed-width "normal" widget — Turnstile 300x65,
+ * hCaptcha about 303x78 — and this form's card is only about 296px wide at 360px,
+ * where the site also sets `overflow-x: hidden`, so the widget was clipped
+ * mid-sentence on the page that asks for a price. The checkbox sits on the left in
+ * both widgets, so submission still worked; it just looked broken.
+ *
+ * Each provider spells "fit the container" differently, and passing one provider's
+ * value to the other is an unknown option rather than an error, so they are mapped
+ * explicitly rather than guessed at.
+ */
+const CAPTCHA_WIDGET_SIZE = {
+  turnstile: "flexible",
+  hcaptcha: "compact",
+};
+
+/**
  * Loads the script (if needed) and renders a widget into `container`.
  *
  * @returns {Promise<{remove: () => void}>} handle used for cleanup on unmount.
@@ -117,6 +135,7 @@ export async function renderCaptchaWidget(provider, container, options) {
 
   widgetId = api.render(container, {
     sitekey: siteKey,
+    size: CAPTCHA_WIDGET_SIZE[provider] || undefined,
     callback: (token) => {
       settled = true;
       onToken?.(token);

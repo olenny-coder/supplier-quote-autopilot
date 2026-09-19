@@ -131,8 +131,11 @@ function ChatWidget() {
             <button
               type="button"
               onClick={clear}
+              // `title` alone is not an accessible name — a screen reader
+              // announces this as an unnamed button.
+              aria-label="Clear conversation"
               title="Clear conversation"
-              className="rounded-lg p-2 text-subtle transition hover:bg-surface-2 hover:text-content"
+              className="rounded-lg p-2.5 text-subtle transition hover:bg-surface-2 hover:text-content"
             >
               <svg
                 className="h-4 w-4"
@@ -154,7 +157,7 @@ function ChatWidget() {
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close chat"
-            className="rounded-lg p-2 text-subtle transition hover:bg-surface-2 hover:text-content"
+            className="rounded-lg p-2.5 text-subtle transition hover:bg-surface-2 hover:text-content"
           >
             <svg
               className="h-4 w-4"
@@ -220,7 +223,14 @@ function ChatWidget() {
             placeholder="Ask about your RFQs…"
             className="w-full rounded-xl border border-border-default bg-surface-inset px-4 py-2.5 text-sm text-content placeholder:text-subtle transition focus:border-primary focus:bg-surface focus:outline-none focus:ring-2 focus:ring-ring/50"
           />
-          <Button type="submit" size="sm" loading={sending} disabled={!input.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            loading={sending}
+            disabled={!input.trim()}
+            // Icon-only, so without this it announces as an unnamed button.
+            aria-label="Send message"
+          >
             <svg
               className="h-4 w-4"
               fill="none"

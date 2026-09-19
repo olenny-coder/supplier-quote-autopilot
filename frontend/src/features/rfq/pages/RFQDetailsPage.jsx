@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
@@ -49,6 +49,20 @@ function RFQDetailsPage() {
   const tabParam = searchParams.get("tab");
   const activeTab = TABS.some((tab) => tab.key === tabParam) ? tabParam : "suppliers";
   const focusInvitationId = Number(searchParams.get("invitation")) || null;
+
+  // Scroll the active tab into view whenever it changes. The strip is five tabs in
+  // an `overflow-x-auto` row, so on a phone the third tab ("Comparison", where the
+  // dashboard's "Compare quotes" button points) starts off-screen — the buyer
+  // arrived at a panel with nothing indicating which section it was.
+  const activeTabRef = useRef(null);
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({
+      inline: "center",
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [activeTab]);
 
   const counts = useMemo(() => {
     if (!overview) return {};
@@ -202,7 +216,13 @@ function RFQDetailsPage() {
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => selectTab(tab.key)}
-                className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
+                // The active tab is scrolled into view on mount, because the row
+                // is wider than a phone screen and the dashboard deep-links
+                // straight to a middle tab. Landing on the comparison panel with
+                // the highlighted tab off-screen left nothing on screen to say
+                // which section was open.
+                ref={isActive ? activeTabRef : undefined}
+                className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
                   isActive
                     ? "bg-surface text-content shadow-sm"
                     : "text-muted hover:text-content"

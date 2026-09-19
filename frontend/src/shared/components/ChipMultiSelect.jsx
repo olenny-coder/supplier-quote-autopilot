@@ -46,6 +46,12 @@ function ChipMultiSelect({
 
   return (
     <div className="space-y-3">
+      {/*
+        The chips are the primary control for picking accreditations, so on a phone
+        they are a thumb target and get the 44px minimum. On a desktop, where they
+        are clicked with a mouse and there may be a dozen of them, the denser
+        original height is kept.
+      */}
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {value.map((entry) => (
@@ -54,7 +60,7 @@ function ChipMultiSelect({
               type="button"
               onClick={() => toggle(entry)}
               title={`Remove ${entry}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary-soft-fg transition hover:bg-danger-soft hover:text-danger-soft-fg"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary-soft-fg transition hover:bg-danger-soft hover:text-danger-soft-fg sm:min-h-0 sm:px-2.5"
             >
               {entry}
               <svg
@@ -79,7 +85,7 @@ function ChipMultiSelect({
               key={option}
               type="button"
               onClick={() => toggle(option)}
-              className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted transition hover:bg-primary-soft hover:text-primary-soft-fg"
+              className="min-h-11 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-muted transition hover:bg-primary-soft hover:text-primary-soft-fg sm:min-h-0 sm:px-2.5"
             >
               + {option}
             </button>

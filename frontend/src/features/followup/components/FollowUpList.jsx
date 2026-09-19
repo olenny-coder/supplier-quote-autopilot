@@ -143,11 +143,14 @@ function FollowUpRow({ followup, onChanged }) {
             {followup.llm_generated && <AiDraftedBadge />}
           </div>
 
-          <div className="text-right">
-            <p className="text-sm font-medium text-content">
+          <div className="min-w-0 text-right">
+            <p className="truncate text-sm font-medium text-content">
               {followup.supplier_name || "Unknown supplier"}
             </p>
-            <p className="text-xs text-subtle">
+            {/* An email address is one long unbroken token. Without `truncate`
+                here it widened the whole page rather than the row, because this
+                app sets no `overflow-x: hidden` on the body. */}
+            <p className="truncate text-xs text-subtle" title={followup.to_email || undefined}>
               {followup.to_email || "No recipient address"}
             </p>
           </div>

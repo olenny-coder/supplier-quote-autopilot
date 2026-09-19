@@ -292,8 +292,13 @@ function ComparisonTable({ comparison }) {
         <table className="min-w-[1900px] w-full text-sm">
           <thead>
             <tr className="border-b border-border-default bg-surface-2 text-left text-xs font-semibold uppercase tracking-wider text-subtle">
-              {visibleColumns.map((column) => (
-                <th key={column.label} className="whitespace-nowrap px-5 py-3">
+              {visibleColumns.map((column, index) => (
+                <th
+                  key={column.label}
+                  className={`whitespace-nowrap px-5 py-3 ${
+                    index === 0 ? "sticky left-0 z-20 bg-surface-2" : ""
+                  }`}
+                >
                   {column.label}
                 </th>
               ))}
@@ -372,10 +377,29 @@ function ComparisonTable({ comparison }) {
   );
 }
 
+/**
+ * Backgrounds for the pinned first column.
+ *
+ * The table is 1900px wide. Scrolling right to the money and score columns used to
+ * take the rank and supplier name with it, so a row of numbers had no owner. This
+ * column now stays put.
+ *
+ * Opaque on purpose: a sticky cell paints over the cells sliding beneath it, so the
+ * rows' translucent tints (`bg-success-soft/40`, `bg-surface-2/40`) would let that
+ * moving content show through the pinned cell and make it unreadable. The opaque
+ * tokens are used instead, which reads as a slightly stronger tint on those rows.
+ */
+const STICKY_FIRST_CELL = ({ muted, recommended }) => {
+  if (muted) return "sticky left-0 z-10 bg-surface-2";
+  if (recommended) return "sticky left-0 z-10 bg-success-soft";
+
+  return "sticky left-0 z-10 bg-surface group-hover:bg-surface-hover";
+};
+
 function ResultRow({ result, columns, recommended = false, muted = false }) {
   return (
     <tr
-      className={`align-top transition ${
+      className={`group align-top transition ${
         muted
           ? "bg-surface-2/40 text-muted opacity-80"
           : recommended
@@ -383,8 +407,13 @@ function ResultRow({ result, columns, recommended = false, muted = false }) {
             : "hover:bg-surface-hover"
       }`}
     >
-      {columns.map((column) => (
-        <td key={column.label} className="px-5 py-4">
+      {columns.map((column, index) => (
+        <td
+          key={column.label}
+          className={`px-5 py-4 ${
+            index === 0 ? STICKY_FIRST_CELL({ muted, recommended }) : ""
+          }`}
+        >
           {column.cell(result)}
         </td>
       ))}

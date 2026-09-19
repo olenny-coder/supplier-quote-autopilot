@@ -139,9 +139,9 @@ function FileImport({ onUpload, isUploading = false }) {
         />
 
         {selectedFile ? (
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex min-w-0 items-center justify-center gap-2">
             <svg
-              className="h-4 w-4 text-success"
+              className="h-4 w-4 shrink-0 text-success"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -153,7 +153,7 @@ function FileImport({ onUpload, isUploading = false }) {
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <span className="text-sm font-medium text-content">
+            <span className="truncate text-sm font-medium text-content" title={selectedFile.name}>
               {selectedFile.name}
             </span>
             <span className="text-xs text-subtle">
