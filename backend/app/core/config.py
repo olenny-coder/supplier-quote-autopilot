@@ -253,6 +253,33 @@ class Settings(BaseSettings):
         json.loads(v)  # raises a clear error at startup instead of at call time
         return v
 
+    @field_validator("DATABASE_URL", "DATABASE_URL_DIRECT", mode="after")
+    @classmethod
+    def force_the_psycopg3_driver(cls, v: str) -> str:
+        """Rewrite a provider's connection string onto the driver this app installs.
+
+        Every hosted Postgres hands out a bare ``postgresql://`` (or the older
+        ``postgres://``) URL, and SQLAlchemy reads that as "use psycopg2" — which is
+        not in requirements.txt, because this codebase uses psycopg **3**. The result
+        of pasting Neon's string verbatim was a crash at import:
+
+            ModuleNotFoundError: No module named 'psycopg2'
+
+        which looks like a broken dependency rather than a string that needs six
+        characters changed. Pasting a connection string is the first thing anyone
+        deploying this does, so the app does the rewrite itself. A URL that already
+        names a driver is left exactly as it is, so an explicit choice still wins.
+        """
+
+        if not v:
+            return v
+
+        for scheme in ("postgresql://", "postgres://"):
+            if v.startswith(scheme):
+                return "postgresql+psycopg://" + v[len(scheme) :]
+
+        return v
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
