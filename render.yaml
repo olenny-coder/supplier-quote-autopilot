@@ -100,9 +100,21 @@ services:
       - key: PUBLIC_FORM_URL
         sync: false
 
-      # CORS. Comma-separated origins; no wildcard in production.
+      # CORS. Comma-separated exact origins, scheme included, no trailing slash.
+      #
+      # This ships a wildcard rather than `sync: false` on purpose, because a blank
+      # box here is the worst of the three states. `sync: false` with no value gave
+      # the variable the empty string, which parses to an empty origin list — and an
+      # empty list rejects *every* browser origin with "400 Disallowed CORS origin".
+      # The API is up, /health is green, and the dashboard cannot make a single
+      # request: a total failure that looks like a frontend bug.
+      #
+      # `*` works immediately and the application logs a warning when a production
+      # deployment uses it, which is the nudge to replace it. So: deploy, confirm it
+      # works, then set the two origins below.
+      #   ALLOWED_ORIGINS=https://your-dashboard.vercel.app,https://your-supplier-form.vercel.app
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: "*"
 
       # -------------------------------------------------------------------- LLM
       # Groq by default. Swap all three for OpenRouter or Gemini — see the README.
