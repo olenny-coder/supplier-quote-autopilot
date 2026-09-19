@@ -49,7 +49,7 @@ backend/
 │   │
 │   ├── features/             one slice per domain: model · schema · service · router
 │   │   ├── auth/             buyer accounts and sessions
-│   │   ├── rfq/              RFQs; deadline, required-field contract, weights
+│   │   ├── rfq/              RFQs; procurement taxonomy, deadline, required fields, weights
 │   │   ├── supplier/         supplier directory + response statistics
 │   │   ├── invitation/       tokenized form links, status derivation, resend
 │   │   ├── quote/            quotes from every source + CSV/PDF importers
@@ -159,9 +159,9 @@ User ──┬── RFQ ──┬── Invitation ──┬── SupplierQuot
 | --- | --- | --- |
 | `users` | Buyer accounts. **The tenant boundary.** | Single-tenant: no team/role model. |
 | `suppliers` | Reusable supplier directory. | Unique per `(user_id, contact_email)`. `risk_rating` feeds the score. |
-| `rfqs` | The request. | Carries `deadline`, `required_fields` (the completeness contract), `scoring_weights`, `currency`, `incoterms`. |
+| `rfqs` | The request. | Carries `deadline`, `required_fields` (the completeness contract), `scoring_weights`, `currency`, `incoterms`, `procurement_type` and `category`. Services columns: `site_name`, `site_address`, `site_access_notes`, `required_response_hours`, `required_accreditations`, `gst_rate`. |
 | `invitations` | One tokenized link per (RFQ, supplier). | Unique per pair. Tracks `status`, `sent_at`, `responded_at`, `view_count`, `reminder_count`. |
-| `supplier_quotes` | Quotes from any source. | Raw submitted figures are **never overwritten**; normalized results live in separate `normalized_*` and `cost_breakdown` columns. |
+| `supplier_quotes` | Quotes from any source. | Raw submitted figures are **never overwritten**; normalized results live in separate `normalized_*` and `cost_breakdown` columns. Services columns: `response_time_hours`, `callout_charge`, `labour_rate`, `materials_markup_pct`, `compliance_accreditations`, `gst_rate`. |
 | `follow_ups` | Every message, sent or pending. | The communication log. `kind` distinguishes no-response / incomplete / deadline / manual. |
 | `comparisons` | Immutable scoring snapshots. | Stores the weights, FX rates, per-quote results and rationale used, so a past recommendation stays explicable. |
 | `approvals` | Human award decisions. | Records the recommendation at decision time, whether it was overridden, and the buyer's reason. |
@@ -175,11 +175,20 @@ original rows and the existing importer paths keep working.
 
 An RFQ declares which fields a quote must carry to count as complete. That list is the
 single input to completeness checking, and therefore to what the follow-up engine is
-allowed to ask for. Defaults:
+allowed to ask for. `app/features/rfq/taxonomy.py` holds one contract per procurement type,
+and the default follows the type — `RFQCreate.effective_required_fields` resolves it, and
+`rfq/model.py`'s `DEFAULT_REQUIRED_FIELDS` is the **services** list because `service` is this
+product's default type:
 
 ```
-unit_price · currency · lead_time · moq · payment_terms · incoterms · validity_date
+service  unit_price · currency · unit · response_time · payment_terms · validity_date
+goods    unit_price · currency · lead_time · moq · payment_terms · incoterms · validity_date
 ```
+
+MOQ and Incoterms are deliberately **not** in the services contract: a minimum callout is a
+charge that already shows up inside the price rather than a quantity gate, and nothing is
+being shipped. An RFQ that lists `required_fields` explicitly gets exactly that list —
+nothing is added to it.
 
 The rules (`agents/quote_parser/completeness.py`):
 
@@ -189,6 +198,10 @@ The rules (`agents/quote_parser/completeness.py`):
 - A field the buyer never required is never reported as missing.
 - A `blocking_question` short-circuits the whole report: the summary says to resolve the
   supplier's question rather than send a reminder.
+- The field's *label* comes from the same module's `label_for(field, procurement_type)`,
+  which applies the services wording (`unit_price` → "rate", `moq` → "minimum callout
+  charge", `lead_time` → "mobilisation time"). That one table feeds the API schemas, the
+  dashboard, the public form and the follow-up emails, so they cannot drift apart.
 
 ---
 
@@ -202,6 +215,17 @@ bounded concurrency, retry with backoff honouring `Retry-After`, fail-fast on
 non-retryable errors, and JSON recovery for the ways small free models wrap objects in
 prose or fences. `ai/completer.py` adapts it to the plain callable that
 `agents/quote_parser` and `agents/followup` accept.
+
+Two constants in that client exist for the same reason, and both matter. `chat_json`
+defaults to `max_tokens=4096` rather than a tight 1500, and a model recognised as a
+reasoning model is sent `reasoning_effort` from `LLM_REASONING_EFFORT` (default `low`).
+The recommended free models emit a reasoning trace before their JSON: at a tight budget the
+trace consumed the whole completion and Groq rejected the call with HTTP 400
+`json_validate_failed` — "max completion tokens reached before generating a valid
+document" — so quote parsing, follow-up drafting and comparison summaries all fell back to
+their deterministic paths without ever saying why. `is_reasoning_model()` matches by
+substring against a deliberately narrow marker list, because a false positive sends the
+field to a model that rejects it and turns a working configuration into a broken one.
 
 **The pre-existing chat assistant** (`rfq_assistant`, `procurement_assistant`,
 `procurement_orchestrator`, `supplier_mailer`, `quote_extraction`) still uses
@@ -352,7 +376,11 @@ uv run python -m scripts.list_routes                         # live route table 
 
 `seed_demo` drives the real services — including the public-form ingestion pipeline — so
 the seeded quotes have genuine normalized costs, completeness assessments and risk
-flags rather than values a fixture made up.
+flags rather than values a fixture made up. The scenario is the product's actual subject: a
+Singapore facilities team buying electrical minor works — 24 points priced per point in SGD
+with 9% GST, a 4-hour attendance requirement and a required electrical licence — with four
+suppliers chosen so the dashboard shows every state the product handles: cheapest but
+unlicensed, dearer but faster and fully accredited, incomplete, and silent.
 
 ---
 
@@ -383,11 +411,20 @@ annotated list — including which are required in production — is in the
 [root README §9](../README.md#9-configuration-reference) and
 [.env.example](.env.example).
 
-`ENV=production` changes three behaviours: exception details are no longer echoed in
-500 responses, insecure defaults are logged loudly at startup, and the app warns when
-`SECRET_KEY` is still the development placeholder, when `ALLOWED_ORIGINS` is `*`, when
-`STORAGE_BACKEND=local` (lost on the next deploy), when `EMAIL_PROVIDER=console` (no
-email is sent), and when `SCHEDULER_SECRET` is unset (no cron-driven follow-ups).
+The settings that decide what the product *is*, rather than whether it runs:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `DEFAULT_PROCUREMENT_TYPE` | `service` | The default type of a new RFQ, and therefore its field contract, its default scoring weights and its vocabulary. `goods` restores the original behaviour. |
+| `BASE_CURRENCY` | `SGD` | The currency a comparison falls back to when an RFQ names none. |
+| `DEFAULT_GST_RATE` | `9.0` | Becomes the `gst_rate` of a new SGD RFQ, and is applied to a quote that states no tax rate of its own. Set `0` where there is no such tax. |
+| `LLM_REASONING_EFFORT` | `low` | `low` \| `medium` \| `high`, or empty. Sent only to models matched as reasoning models; keeps the reasoning trace from consuming the whole completion budget. |
+
+`ENV=production` has two effects: exception details are no longer echoed in 500 responses,
+and insecure or lossy defaults are logged loudly at startup — when `SECRET_KEY` is still the
+development placeholder, when `ALLOWED_ORIGINS` is `*`, when `STORAGE_BACKEND=local` (lost
+on the next deploy), when `EMAIL_PROVIDER=console` (no email is sent), and when
+`SCHEDULER_SECRET` is unset (no cron-driven follow-ups).
 
 ---
 

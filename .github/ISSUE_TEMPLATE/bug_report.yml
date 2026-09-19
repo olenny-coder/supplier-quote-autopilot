@@ -1,0 +1,159 @@
+# GitHub issue forms — bug report.
+#
+# Docs: https://docs.github.com/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+#
+# The required fields are the ones that make a report actionable: without a failing
+# command and its real output, a bug in this project is usually unguessable, because
+# the interesting failures tend to be environment-shaped (SQLite locally, PostgreSQL in
+# production; free-tier quirk versus a code defect).
+
+name: Bug report
+description: Something is broken, wrong, or behaves differently from what the documentation says.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Two things make a bug report here
+        much easier to act on:
+
+        1. **The exact command and its real output.** "Comparison is wrong" cannot be
+           reproduced; `uv run pytest tests/test_comparison_engine.py -q` plus the
+           traceback can.
+        2. **Whether you are running SQLite or PostgreSQL.** The test suite runs on
+           SQLite while production runs PostgreSQL, so a whole class of bug only shows
+           up on one of them.
+
+        Please do not paste API keys, tokens, `.env` contents, or real supplier
+        contact details. Redact them.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am not pasting secrets, `.env` contents, or real supplier data.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the product?
+      description: Pick the closest match. Choose "Not sure" if you would rather not guess.
+      options:
+        - RFQ management (create, edit, deadline, required fields)
+        - Supplier invitations and tokenized form links
+        - Supplier form (public_form) — submission, uploads, expiry
+        - Follow-up automation (scheduler, drafts, approvals, communication log)
+        - Comparison and scoring (costing, weighting, ranking, recommendation)
+        - Export (CSV / PDF)
+        - AI layer (quote parsing, follow-up drafting, narrative)
+        - Email delivery
+        - Authentication and accounts
+        - Deployment (Neon, Render, Vercel, Docker Compose)
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead. Quote any error text verbatim.
+      placeholder: |
+        I invited three suppliers, two submitted, but the dashboard still shows
+        "0 submitted". The API returned 200 with responded_count: 0.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that shows the problem. Note anything you had to change to trigger it.
+      placeholder: |
+        1. docker compose up --build
+        2. Register, create an RFQ with a 5-day deadline and 2 required fields
+        3. Invite one supplier, submit a quote from the tokenized link
+        4. Reload the dashboard
+    validations:
+      required: true
+
+  - type: textarea
+    id: command-output
+    attributes:
+      label: The failing command and its real output
+      description: |
+        Paste the command you ran and the complete output, unedited. This is the single
+        most useful field in this form.
+      render: shell
+      placeholder: |
+        $ cd backend && uv run pytest tests/test_acceptance.py -q
+        ...
+        FAILED tests/test_acceptance.py::test_full_acceptance_flow - assert 0 == 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite (dev.cmd, or the test suite)
+        - PostgreSQL — local (Docker Compose or native)
+        - PostgreSQL — Neon
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: Output of `git rev-parse --short HEAD`, or the release you are running.
+      placeholder: 0eb61e0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        OS, how you are running the stack, Python and Node versions, and the two
+        non-secret settings that most often explain a difference: `ENV` and
+        `STORAGE_BACKEND`.
+      placeholder: |
+        Windows 11, dev.cmd (SQLite)
+        Python 3.13.7, Node 22.11.0
+        ENV=development, STORAGE_BACKEND=local
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ai-configured
+    attributes:
+      label: Is an LLM API key configured?
+      description: With no key the AI layer uses deterministic fallbacks, so this changes which code path you are exercising.
+      options:
+        - "No — running with LLM_API_KEY empty (deterministic fallbacks)"
+        - "Yes — Groq"
+        - "Yes — OpenRouter"
+        - "Yes — Google Gemini"
+        - "Yes — another OpenAI-compatible provider"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Log excerpts from the API window, a screenshot, or a theory. Optional.
+    validations:
+      required: false

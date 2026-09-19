@@ -1,0 +1,114 @@
+# GitHub issue forms — feature request.
+#
+# Docs: https://docs.github.com/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+#
+# The "what is the current workaround" question is deliberate. This project has an
+# explicitly documented MVP boundary (see the README's roadmap), and a request that
+# names the manual step it would remove is far easier to prioritise than one phrased
+# as a missing capability.
+
+name: Feature request
+description: Suggest a capability, an improvement, or a change to how something works.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests are welcome, including ones that are firmly outside the MVP — it helps
+        to know what is missing. Please check the README's roadmap section first: a few
+        limitations (single-tenant accounts, one scope per RFQ, static FX rates,
+        in-process rate limiting) are known and deliberate, and it is worth saying so
+        if you want to change one of those decisions.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I checked the roadmap section of the README and this is not already listed as a known limitation.
+          required: true
+        - label: I searched existing issues and discussions for this request.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the product does this affect?
+      options:
+        - RFQ management (create, edit, deadline, required fields)
+        - Supplier invitations and tokenized form links
+        - Supplier form (public_form)
+        - Follow-up automation (scheduler, drafts, approvals, communication log)
+        - Comparison and scoring (costing, weighting, ranking, recommendation)
+        - Export (CSV / PDF)
+        - AI layer
+        - Email delivery
+        - Authentication and accounts
+        - Deployment and operations
+        - Documentation
+        - New — does not fit an existing area
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you are trying to solve
+      description: Describe the situation, not the implementation. What goes wrong for you today, and how often?
+      placeholder: |
+        We run the same PPM schedule every quarter with the same eight contractors. I
+        re-enter the same scope, site details and required fields each time.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What do you do instead today?
+      description: The manual step this would remove, or the closest existing behaviour. Write "nothing" if there is no workaround.
+      placeholder: I duplicate last quarter's RFQ by hand and update the dates.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+      description: A concrete sketch if you have one — a field, a screen, an endpoint, a setting.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: disruptive
+    attributes:
+      label: Would this change existing behaviour or data?
+      description: This determines whether it can land in a minor release.
+      options:
+        - "No — additive only"
+        - "Yes — it changes behaviour of something that already works"
+        - "Yes — it needs a schema or data migration"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context on your setup
+      description: |
+        Optional, but useful: are you in Singapore or elsewhere, do you buy mostly
+        services or goods, how many suppliers do you invite per RFQ, and are you on the
+        free tier? A request from someone running 40 suppliers a month carries
+        different weight from a five-person team.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this (see CONTRIBUTING.md).
+          required: false

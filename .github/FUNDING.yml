@@ -1,0 +1,38 @@
+# Funding — placeholder only.
+#
+# Every entry below is COMMENTED OUT on purpose. GitHub reads this file from the
+# default branch, and a live entry that points at a destination which does not exist
+# yet renders a broken or misleading "Sponsor" button on the repository.
+#
+# To enable one, delete the leading "# " from that one line (and from nothing else),
+# fill in your real handle, and commit. Leave the rest commented.
+#
+# The file is valid YAML as it stands: comments only, no keys.
+#
+# Reference: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Exactly one of the first four platforms may be active at a time. github,
+# patreon, open_collective, ko_fi and tidelift are the ones GitHub treats as
+# single-value; custom is a list of up to four URLs and is the catch-all.
+
+# github: your-github-username
+# patreon: your-patreon-username
+# open_collective: your-collective-slug
+# ko_fi: your-ko-fi-username
+# tidelift: npm/package-name
+# liberapay: your-liberapay-username
+# issuehunt: your-issuehunt-username
+# otechie: your-otechie-username
+# lfx_crowdfunding: your-lfx-project-name
+# polar: your-polar-username
+# buy_me_a_coffee: your-buy-me-a-coffee-username
+# thanks_dev: your-thanks-dev-username
+
+# `custom` takes up to four URLs — Ko-fi/Buy Me a Coffee pages, a Stripe payment
+# link, a company "support this project" page, or a GitHub Sponsors profile.
+# Uncomment the block below and replace the placeholder URLs, then remove the
+# per-platform lines above so GitHub does not see conflicting configuration.
+#
+# custom:
+#   - https://example.com/support
+#   - https://example.com/procurement-autopilot
