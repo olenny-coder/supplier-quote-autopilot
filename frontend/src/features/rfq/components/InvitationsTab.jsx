@@ -154,9 +154,9 @@ function InvitationsTab({ rfqId, invitations = [], onChanged, focusInvitationId 
           description="Invite suppliers below — each one receives a private form link, so they never see another supplier's quote."
         />
       ) : (
-        <Card className="overflow-hidden">
+        <Card className="hidden overflow-hidden md:block">
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full text-sm">
+            <table className="w-full min-w-[1360px] text-sm">
               <thead>
                 <tr className="border-b border-border-default bg-surface-2 text-left text-xs font-semibold uppercase tracking-wider text-subtle">
                   <th className="px-5 py-3">Supplier</th>
@@ -167,7 +167,7 @@ function InvitationsTab({ rfqId, invitations = [], onChanged, focusInvitationId 
                   <th className="px-5 py-3">Opens</th>
                   <th className="px-5 py-3">Last activity</th>
                   <th className="px-5 py-3">Missing fields</th>
-                  <th className="px-5 py-3 text-right">Actions</th>
+                  <th className="w-[26rem] px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
 
@@ -282,39 +282,64 @@ function InvitationsTab({ rfqId, invitations = [], onChanged, focusInvitationId 
                         )}
                       </td>
 
-                      <td className="px-5 py-4">
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <td className="px-5 py-4 align-top">
+                        {/*
+                          A fixed 3x2 GRID, not a wrapping flex row.
+
+                          With `flex flex-wrap justify-end` the buttons had
+                          intrinsic widths and each row wrapped at a different
+                          point — "Chase missing fields" exists only on an
+                          incomplete row, so that row pushed a button onto a second
+                          line while its neighbours did not. Right-aligned, the
+                          result was a column that visibly zig-zagged down the
+                          table and never lined up with the row above it.
+
+                          A grid with `w-full` buttons pins every action to the
+                          same cell in every row. The conditional slot keeps its
+                          empty cell rather than being skipped, so Cancel — the
+                          destructive one — is always in the same place and cannot
+                          be mis-clicked because a neighbour grew by a button.
+                        */}
+                        <div className="grid w-[26rem] grid-cols-3 gap-1.5">
                           <RowAction
+                            compact
                             label="Copy link"
                             busy={pending === `copy-${invitation.id}`}
                             onClick={() => handleCopyLink(invitation)}
                           />
                           <RowAction
+                            compact
                             label="Open form"
                             onClick={() => handleOpenForm(invitation)}
                           />
                           <RowAction
+                            compact
                             label="Resend link"
                             busy={pending === `resend-${invitation.id}`}
                             onClick={() => handleResend(invitation)}
                           />
                           <RowAction
+                            compact
                             label="Send reminder"
                             busy={pending === `reminder-${invitation.id}`}
                             onClick={() => handleFollowUp(invitation, "reminder")}
                           />
 
                           {/* Only meaningful when the quote exists but is missing fields. */}
-                          {invitation.status === "incomplete" && (
+                          {invitation.status === "incomplete" ? (
                             <RowAction
-                              label="Chase missing fields"
+                              compact
+                              label="Chase fields"
                               tone="warning"
                               busy={pending === `incomplete-${invitation.id}`}
                               onClick={() => handleFollowUp(invitation, "incomplete")}
                             />
+                          ) : (
+                            <span aria-hidden="true" />
                           )}
 
                           <RowAction
+                            compact
                             label="Cancel"
                             tone="danger"
                             busy={pending === `cancel-${invitation.id}`}
@@ -338,6 +363,34 @@ function InvitationsTab({ rfqId, invitations = [], onChanged, focusInvitationId 
         </Card>
       )}
 
+      {/*
+        Phones get one card per supplier instead of the table.
+
+        The table is 1360px wide and scrolls, which is the right compromise for a
+        grid of numbers — but not for this one. The actions are the whole point of
+        the screen, and reaching them meant scrolling the row sideways until the
+        supplier's name was off-screen, so you lost track of which supplier you
+        were about to email. A card keeps the name, the status and every action
+        together on one screen.
+      */}
+      {invitations.length > 0 && (
+        <div className="space-y-3 md:hidden">
+          {invitations.map((invitation) => (
+            <InvitationCard
+              key={invitation.id}
+              invitation={invitation}
+              isFocused={focusInvitationId === invitation.id}
+              pending={pending}
+              onCopyLink={() => handleCopyLink(invitation)}
+              onOpenForm={() => handleOpenForm(invitation)}
+              onResend={() => handleResend(invitation)}
+              onFollowUp={handleFollowUp}
+              onCancel={() => setCancelTarget(invitation)}
+            />
+          ))}
+        </div>
+      )}
+
       <InviteSuppliersPanel
         rfqId={rfqId}
         invitations={invitations}
@@ -354,6 +407,161 @@ function InvitationsTab({ rfqId, invitations = [], onChanged, focusInvitationId 
         cancelText="Keep invitation"
         isLoading={pending === `cancel-${cancelTarget?.id}`}
       />
+    </div>
+  );
+}
+
+/**
+ * One supplier, as a card, for screens too narrow for the table.
+ *
+ * Carries the same information in the same order as the table row, so switching
+ * between a laptop and a phone is not a re-learning exercise.
+ */
+function InvitationCard({
+  invitation,
+  isFocused,
+  pending,
+  onCopyLink,
+  onOpenForm,
+  onResend,
+  onFollowUp,
+  onCancel,
+}) {
+  const missingLabels =
+    invitation.missing_field_labels?.length > 0
+      ? invitation.missing_field_labels
+      : (invitation.missing_fields || []).map((field) => formatFieldKey(field));
+
+  const lastActivity = latestActivity(invitation);
+
+  return (
+    <Card
+      className={`p-4 ${
+        isFocused ? "ring-1 ring-inset ring-primary/30" : ""
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-sm font-semibold text-primary-soft-fg">
+          {(invitation.supplier_name || "?").charAt(0).toUpperCase()}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-content">
+            {invitation.supplier_name}
+          </p>
+          {/* A long address must wrap rather than widen the card. */}
+          <p className="break-words text-sm text-muted">
+            {invitation.supplier_contact_email || "—"}
+          </p>
+          {invitation.supplier_contact_name && (
+            <p className="truncate text-xs text-subtle">
+              {invitation.supplier_contact_name}
+            </p>
+          )}
+        </div>
+
+        <StatusBadge status={invitation.status} domain="invitation" />
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <CardFact label="Sent">
+          {invitation.last_sent_at
+            ? formatDateTime(invitation.last_sent_at)
+            : "Not sent"}
+        </CardFact>
+        <CardFact label="Reminders">
+          {formatNumber(invitation.reminder_count)}
+          {invitation.next_reminder_at
+            ? ` · next ${formatRelativeTime(invitation.next_reminder_at)}`
+            : ""}
+        </CardFact>
+        <CardFact label="Opens">{formatNumber(invitation.view_count)}</CardFact>
+        <CardFact label="Last activity">
+          {lastActivity ? formatRelativeTime(lastActivity) : "—"}
+        </CardFact>
+        <CardFact label="Risk">{invitation.supplier_risk || "low"}</CardFact>
+      </dl>
+
+      {invitation.status_reason && (
+        <p className="mt-3 text-xs leading-relaxed text-subtle">
+          {invitation.status_reason}
+        </p>
+      )}
+
+      {missingLabels.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-subtle">
+            Missing fields
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {missingLabels.map((label) => (
+              <span
+                key={label}
+                className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-medium text-warning-soft-fg"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {invitation.blocking_question && (
+        <p className="mt-3 text-xs leading-relaxed text-subtle">
+          {invitation.blocking_question}
+        </p>
+      )}
+
+      {/*
+        Two columns rather than a scrolling row: every button is a full 44px tall
+        so it is a real thumb target, and Cancel keeps the last cell on its own so
+        it is never adjacent to the action a buyer meant to press.
+      */}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <RowAction
+          label="Copy link"
+          busy={pending === `copy-${invitation.id}`}
+          onClick={onCopyLink}
+        />
+        <RowAction label="Open form" onClick={onOpenForm} />
+        <RowAction
+          label="Resend link"
+          busy={pending === `resend-${invitation.id}`}
+          onClick={onResend}
+        />
+        <RowAction
+          label="Send reminder"
+          busy={pending === `reminder-${invitation.id}`}
+          onClick={() => onFollowUp(invitation, "reminder")}
+        />
+
+        {invitation.status === "incomplete" && (
+          <RowAction
+            label="Chase fields"
+            tone="warning"
+            busy={pending === `incomplete-${invitation.id}`}
+            onClick={() => onFollowUp(invitation, "incomplete")}
+          />
+        )}
+
+        <RowAction
+          label="Cancel"
+          tone="danger"
+          busy={pending === `cancel-${invitation.id}`}
+          onClick={onCancel}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function CardFact({ label, children }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium uppercase tracking-wider text-subtle">
+        {label}
+      </dt>
+      <dd className="truncate text-muted">{children}</dd>
     </div>
   );
 }
@@ -395,12 +603,24 @@ function SummaryTile({ label, value, tone = "neutral" }) {
   );
 }
 
-function RowAction({ label, onClick, busy = false, tone = "neutral" }) {
+/**
+ * One row action.
+ *
+ * `compact` is the dense form used inside the table, where the column is a fixed
+ * width and every button must fill its grid cell so the rows line up. The default
+ * form is for the phone card, where a button is a thumb target: full width of its
+ * cell, at least 44px tall, and never smaller than the readable text size.
+ */
+function RowAction({ label, onClick, busy = false, tone = "neutral", compact = false }) {
   const tones = {
     neutral: "text-muted hover:bg-surface-2 hover:text-content",
     warning: "text-warning-soft-fg hover:bg-warning-soft",
     danger: "text-danger-soft-fg hover:bg-danger-soft",
   };
+
+  const sizing = compact
+    ? "w-full whitespace-nowrap px-2.5 py-1.5 text-xs"
+    : "w-full min-h-11 whitespace-nowrap px-3 py-2.5 text-sm";
 
   return (
     <Button
@@ -409,7 +629,7 @@ function RowAction({ label, onClick, busy = false, tone = "neutral" }) {
       size="sm"
       loading={busy}
       onClick={onClick}
-      className={`px-2.5 py-1.5 text-xs ${tones[tone]}`}
+      className={`${sizing} ${tones[tone]}`}
     >
       {label}
     </Button>

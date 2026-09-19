@@ -426,6 +426,80 @@ def test_html_body_escapes_markup_from_the_supplier():
     assert "Second paragraph" in html
 
 
+def test_html_body_turns_the_quote_link_into_a_hyperlink():
+    """The supplier opens this part on a phone; a flat URL means select-and-copy.
+
+    The link is on its own line in the plain-text body so it is tappable in a mail
+    client that only renders text. The HTML part is where it can be a real anchor,
+    and that is what a supplier actually taps.
+    """
+
+    body = (
+        "Submit your quote here — no account or sign-up needed:\n"
+        "https://supplier-quote-form.vercel.app/quote/1/aBcDeF-123\n"
+        "\n"
+        "Thank you."
+    )
+
+    html = _html_body(body)
+
+    assert (
+        '<a href="https://supplier-quote-form.vercel.app/quote/1/aBcDeF-123"'
+        in html
+    )
+    assert ">https://supplier-quote-form.vercel.app/quote/1/aBcDeF-123</a>" in html
+
+    # The plain-text body is still the source of truth for the visible wording.
+    assert "Submit your quote here" in html
+    assert "Thank you." in html
+
+
+def test_a_query_string_survives_linkification():
+    """`&` is escaped to `&amp;` first, which is correct in both href and text."""
+
+    html = _html_body("See https://example.com/a?b=1&c=2 now.")
+
+    assert 'href="https://example.com/a?b=1&amp;c=2"' in html
+    # A raw ampersand in the href would be an invalid entity reference.
+    assert "b=1&c=2" not in html
+
+
+def test_prose_punctuation_is_not_swallowed_by_the_link():
+    for body, expected_href in (
+        ("Open https://example.com/x. Then reply.", "https://example.com/x"),
+        ("The link (https://example.com/x) works.", "https://example.com/x"),
+        ('Open "https://example.com/x" today.', "https://example.com/x"),
+    ):
+        html = _html_body(body)
+
+        assert f'href="{expected_href}"' in html, body
+        # The punctuation itself must still be in the prose, outside the anchor.
+        assert "</a>" in html
+        assert f"{expected_href}</a>" in html
+
+
+def test_only_http_schemes_become_links():
+    """A javascript: URL in a supplier's notes must never be clickable."""
+
+    html = _html_body("javascript:alert(1) and https://example.com/ok")
+
+    assert "javascript:" in html
+    assert 'href="javascript:' not in html
+
+    # The legitimate link on the same line still works.
+    assert 'href="https://example.com/ok"' in html
+
+
+def test_linkification_runs_after_escaping_so_it_cannot_be_used_to_inject():
+    """A URL-shaped string inside a tag is escaped text, not a link."""
+
+    html = _html_body('<img src=x onerror=alert(1)> https://example.com/ok')
+
+    assert "<img" not in html
+    assert "&lt;img" in html
+    assert 'href="https://example.com/ok"' in html
+
+
 def test_describe_configuration_states_the_transport_honestly(monkeypatch):
     _configure_provider(monkeypatch, "brevo")
 

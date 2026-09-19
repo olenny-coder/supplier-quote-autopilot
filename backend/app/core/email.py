@@ -73,14 +73,16 @@ def parse_mail_from(value: str) -> tuple[str, str]:
 
 
 def _html_body(body: str) -> str:
-    """Wrap a plain-text body in minimal HTML.
+    """Wrap a plain-text body in minimal HTML, with bare URLs as real links.
 
     Deliberately not a templating engine: escaping the text and preserving line
     breaks keeps the plain-text body as the single source of truth, so the two
-    representations cannot drift.
+    representations cannot drift. The only transformation beyond escaping is
+    linkifying ``http(s)`` URLs, because a supplier reading the HTML part on a
+    phone should be able to tap the quote link rather than select and copy it.
     """
 
-    escaped = html.escape(body)
+    escaped = _linkify(html.escape(body))
     paragraphs = [
         f"<p>{block.replace(chr(10), '<br />')}</p>"
         for block in escaped.split("\n\n")
@@ -93,6 +95,49 @@ def _html_body(body: str) -> str:
         + "".join(paragraphs)
         + "</div>"
     )
+
+
+#: A bare ``http(s)`` URL inside already-escaped text.
+#:
+#: Written for escaped text, which is why it is not the obvious ``\S+``. After
+#: escaping, an ampersand has become either ``&amp;`` — part of a real query
+#: string, and wanted — or the start of some other entity such as ``&quot;``,
+#: which would be the *prose* around the URL and must stop the match. Allowing
+#: ``&amp;`` explicitly while excluding a bare ``&`` distinguishes the two.
+_URL_RE = re.compile(r"https?://(?:[^\s<>\"'&]|&amp;)+")
+
+#: Punctuation that ends a sentence far more often than it ends a URL.
+_TRAILING_PUNCTUATION = ".,;:!?)]}\u201d"
+
+
+def _linkify(escaped_text: str) -> str:
+    """Turn bare URLs into anchors, preserving the surrounding text verbatim.
+
+    Runs on the **escaped** text on purpose: the URL is already HTML-safe, so the
+    same string is correct in both the ``href`` and the visible link text, and no
+    second escaping step can disagree with the first.
+
+    Only ``http`` and ``https`` are matched. A ``javascript:`` URL in a supplier's
+    name or notes therefore cannot become a clickable link.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        url = match.group(0)
+        trailing = ""
+
+        while url and url[-1] in _TRAILING_PUNCTUATION:
+            trailing = url[-1] + trailing
+            url = url[:-1]
+
+        if not url:
+            return match.group(0)
+
+        return (
+            f'<a href="{url}" style="color:#1d4ed8;text-decoration:underline;'
+            f'word-break:break-all">{url}</a>{trailing}'
+        )
+
+    return _URL_RE.sub(replace, escaped_text)
 
 
 # ---------------------------------------------------------------- provider send
