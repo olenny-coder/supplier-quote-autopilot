@@ -267,6 +267,29 @@ def score_supplier_risk(rating: str | None) -> float:
     return SUPPLIER_RISK_SCORES.get((rating or "low").strip().lower(), UNKNOWN_SCORE)
 
 
+def format_percent(value: Decimal | float | int | None) -> str:
+    """A rate as a person writes it: ``9``, never ``9.00`` and never ``9E+1``.
+
+    Needed because the *same* rate formats two different ways depending on where it
+    came from. A rate parsed from a supplier's submission is ``Decimal('9')`` and
+    renders as "9%", while the same figure after a round trip through the
+    ``Numeric(5, 2)`` column is ``Decimal('9.00')`` and renders as "9.00%" — because
+    ``Decimal.__format__`` honours the coefficient's significance under ``:g``. Two
+    spellings of one number in one screen is exactly the kind of thing that makes a
+    buyer wonder whether they are looking at two different figures.
+    """
+
+    if value is None:
+        return "0"
+
+    text = f"{Decimal(str(value)):f}"  # 'f' never produces scientific notation
+
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+
+    return text or "0"
+
+
 def score_price(prices: list[Decimal | None], value: Decimal | None) -> float:
     """Min-max price score within the batch. Cheapest gets 100.
 
@@ -375,8 +398,8 @@ def collect_risk_flags(
 
     if result.gst_rate and result.breakdown.tax_derived_from_rate:
         flags.append(
-            f"GST added at {result.gst_rate:g}% from the rate stated on the quote, "
-            f"not from an explicit tax figure."
+            f"GST added at {format_percent(result.gst_rate)}% from the rate stated on "
+            f"the quote, not from an explicit tax figure."
         )
 
     if result.callout_charge is None and result.response_time_hours is not None:
@@ -389,8 +412,8 @@ def collect_risk_flags(
 
     if result.materials_markup_pct is not None and result.materials_markup_pct > 20:
         flags.append(
-            f"Materials markup of {result.materials_markup_pct:g}% is above the "
-            f"20% typically accepted for minor works."
+            f"Materials markup of {format_percent(result.materials_markup_pct)}% is "
+            f"above the 20% typically accepted for minor works."
         )
 
     return flags

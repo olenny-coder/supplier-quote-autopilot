@@ -1,4 +1,4 @@
-# Supplier Quote Autopilot — open-source RFQ and quote comparison for facilities management and building services procurement
+﻿# Supplier Quote Autopilot — open-source RFQ and quote comparison for facilities management and building services procurement
 
 Run a request for quotation, give every supplier their own private web form, chase the
 ones who go quiet automatically, compare what comes back on total cost rather than
@@ -9,7 +9,7 @@ headline price, and award as a human.
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/UI-React%2019-61DAFB.svg?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/database-PostgreSQL-4169E1.svg?logo=postgresql&logoColor=white)
-![317 tests passing](https://img.shields.io/badge/tests-317%20passing-brightgreen.svg)
+![424 tests passing](https://img.shields.io/badge/tests-424%20passing-brightgreen.svg)
 ![Deploy: Neon + Render + Vercel](https://img.shields.io/badge/deploy-Neon%20%2B%20Render%20%2B%20Vercel-3DDC84.svg)
 ![LLM: Groq / OpenRouter / Gemini](https://img.shields.io/badge/LLM-Groq%20%7C%20OpenRouter%20%7C%20Gemini%20(free%20tiers)-blueviolet.svg)
 
@@ -664,7 +664,7 @@ Supplier Quote Autopilot
 │   │   └── main.py
 │   ├── alembic/         migrations (env.py reads DATABASE_URL_DIRECT)
 │   ├── scripts/         seed_demo.py · list_routes.py
-│   └── tests/           317 tests, offline and deterministic
+│   └── tests/           424 tests, offline and deterministic
 │
 ├── agents/              PURE domain logic — no web, no database, no I/O
 │   ├── quote_parser/    submission -> typed quote (+ completeness)
@@ -730,7 +730,7 @@ storage — **is** async. See assumption A1 in [INTEGRATION_PLAN.md](INTEGRATION
 
 ```bash
 cd backend
-uv run pytest -q                                  # the whole suite: 317 tests, ~40s
+uv run pytest -q                                  # the whole suite: 424 tests, ~40s
 uv run pytest tests/test_acceptance.py -q          # one file
 uv run pytest --cov=app --cov-report=term-missing  # coverage
 uv run ruff check . ../agents ../comparison        # lint (correctness rules only)
@@ -751,16 +751,21 @@ injecting a fake completer, never a real provider.
 | `test_quote_parser.py` | Verbatim-or-null grounding, layer precedence, normalization, and every completeness rule — including "explicitly none is an answer" and "TBD is not". |
 | `test_followup_policy.py` | Each branch of the decision order, reminder caps, and the escalate-don't-chase rule. |
 | `test_transports.py` | The HTTP email providers, the LLM client's retry/backoff/rate-limit behaviour, and an assertion that **no SMTP code exists anywhere**. |
+| `test_services_comparison.py` | The services domain as pure logic: the nine criteria, the per-type weight sets, the response-time curve, accreditation coverage and the **25.0 cap**, GST resolution across all six rate/amount combinations, the callout in the landed cost, the rate bases (including that "per job" and "lump sum" are one basis while "per sq m" is not a metre), complete-quote-first ranking, and the parser's SLA/percentage/accreditation normalizers. |
+| `test_services_api.py` | The services path end to end through the public HTTP API: `/meta/options` with no credentials, a services RFQ defaulting to SGD and 9% GST, the supplier preview's service fields and server-owned labels, a complete submission round-tripping the SLA and licences, **both accepted spellings** of the three ambiguous field names, an incomplete quote chased for exactly the two fields it is missing, the missing-licence cap reaching the dashboard through `missing_accreditations`, derived GST disclosed in the cost breakdown, and a manual entry assessed against the services contract. |
 | `test_rfq.py` · `test_quote.py` · `test_chat.py` · `test_csv_import.py` | Kept from the base codebase, unmodified. |
 
-**What the suite does not cover yet.** The acceptance, public-form and regression tests pin
-`procurement_type: "goods"` explicitly, so the three end-to-end and adversarial suites
-exercise the landed-cost path. No test file mentions `response_time`, `compliance`,
-`accreditation`, `callout`, `gst_rate`, or `GET /meta/options`, so the services scoring path
-— the response-time and accreditation scores, the 25.0 cap on a missing required
-accreditation, GST derived from a stated rate, the service rate bases and the taxonomy
-endpoint — is implemented and reachable but not covered by the offline suite. That is a gap
-in the tests, not in the code, and it is the first thing worth closing.
+**Both procurement paths are covered.** The acceptance, public-form and regression suites pin
+`procurement_type: "goods"` explicitly and exercise the landed-cost path (MOQ, lead time,
+Incoterms, freight, duties). The two `test_services_*` modules cover the services path, which
+is the product's default: the SLA and accreditation criteria, the cap on a missing required
+licence, GST derived from a stated rate, the service rate bases, and `GET /meta/options`.
+
+That split is deliberate rather than accidental, and it is what closed the honest gap that
+existed before it. The services path was implemented and demoed but untested for a while,
+because every end-to-end suite had been written against a goods RFQ. It is now covered from
+both ends: the engine arithmetic as pure functions, and the whole submission-to-comparison
+flow through HTTP.
 
 **Why SQLite in the tests and PostgreSQL in production matters.** The suite runs on SQLite;
 production runs on Neon's PostgreSQL. That gap hides a whole class of defect that only
@@ -880,7 +885,7 @@ fields are named.
 ## 13. Roadmap: what is not built yet
 
 An honest list. These are known and deliberate boundaries of the current version, not
-oversights. It is an MVP with 317 offline tests, a CI pipeline and a free-tier deployment
+oversights. It is an MVP with 424 offline tests, a CI pipeline and a free-tier deployment
 that has been walked through end to end — it has not been through a security audit, and it
 is a solid small-team tool rather than an enterprise system of record.
 
