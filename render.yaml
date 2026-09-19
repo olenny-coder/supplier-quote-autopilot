@@ -124,6 +124,12 @@ services:
         value: "4"
       - key: LLM_TIMEOUT_SECONDS
         value: "60"
+      # The default model reasons before it answers. "low" keeps that trace short
+      # enough for the JSON answer to fit the token budget; at the provider default
+      # Groq rejected every JSON call with HTTP 400 and all three LLM features fell
+      # back to their deterministic paths.
+      - key: LLM_REASONING_EFFORT
+        value: low
       - key: LLM_BATCH_MAX_CALLS
         value: "50"
 
@@ -194,9 +200,22 @@ services:
       - key: SCHEDULER_SECRET
         generateValue: true
 
+      # -------------------------------------------------------- procurement type
+      # What a new RFQ is unless the buyer picks otherwise. `service` is building
+      # maintenance and minor works (electrical, mechanical, plumbing, painting,
+      # ACMV…): the service field contract, the service weights, and the services
+      # vocabulary. Set to `goods` for a supplies-only workspace.
+      - key: DEFAULT_PROCUREMENT_TYPE
+        value: service
+
       # -------------------------------------------------------------- comparison
+      # Every price is normalized into this currency before anything is compared.
       - key: BASE_CURRENCY
-        value: USD
+        value: SGD
+      # GST applied when a supplier states a rate but no explicit tax amount.
+      # 9.0 is the current Singapore rate; set 0 if you are not GST-registered.
+      - key: DEFAULT_GST_RATE
+        value: "9.0"
       - key: LEAD_TIME_RISK_DAYS
         value: "90"
       - key: QUOTE_VALIDITY_WARNING_DAYS

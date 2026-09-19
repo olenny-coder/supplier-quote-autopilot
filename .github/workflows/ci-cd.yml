@@ -72,6 +72,19 @@ jobs:
           uv run alembic upgrade head
           uv run alembic check
 
+      - name: Seed the demo workspace end to end
+        # The seed drives the real pipeline — RFQ → invitations → public-form
+        # submissions → scoring → follow-up sweep → comparison — so it is the
+        # cheapest proof that a fresh clone works, and it is the first thing a new
+        # user runs. `--check` asserts the invariants the demo depends on: a services
+        # RFQ in SGD, one complete quote, one incomplete quote to chase, one
+        # non-responder, a recommendation, and follow-up drafts. Without this, a
+        # stale local schema or a form field the API stopped accepting breaks the
+        # demo silently.
+        env:
+          DATABASE_URL: sqlite:///./ci-seed.db
+        run: uv run python -m scripts.seed_demo --reset --run-scheduler --check
+
       - name: Verify requirements.txt is in sync with uv.lock
         # Render installs from requirements.txt (so the start command can be the
         # plain `uvicorn ...` form). If the two drift, production silently runs a
