@@ -5,6 +5,21 @@ RFQ, invite suppliers, watch who has responded, chase the gaps, compare quotes
 side by side, and approve an award. Built with Vite and styled with Tailwind CSS
 v4 using a token-driven light/dark theme.
 
+## What this app buys
+
+It is built for **building maintenance and minor works** — electrical, mechanical,
+plumbing, painting, ACMV, fire protection, cleaning and the rest — bought by a
+Singapore facilities team, so the defaults are **SGD** and **9% GST**, a price is a
+**rate against a rate basis** ("per point", "per visit", "lump sum") rather than a
+per-piece price, and the fields that matter are the **response time (SLA)**, the
+**callout charge** and the supplier's **accreditations**.
+
+The goods path still works and is tested: set an RFQ's procurement type to *goods*
+and it collects MOQ, Incoterms, lead time, freight and duties exactly as before.
+Nothing in this app is hard-coded to one of the two — the categories, rate bases,
+required fields, labels and scoring weights all arrive from `GET /meta/options`, so
+those are backend decisions. See [`src/features/meta/README.md`](src/features/meta/README.md).
+
 ---
 
 ## Tech stack
@@ -41,6 +56,7 @@ src/
 ├── features/
 │   ├── auth/                # login/register, session, ProtectedRoute, redirect targets
 │   ├── dashboard/           # / — summary counters, closing soon, needs attention
+│   ├── meta/                # taxonomy, defaults and scoring criteria from the API
 │   ├── rfq/                 # register, create form + suppliers step, tabbed detail page
 │   ├── quote/               # quote table, manual entry, CSV/PDF import
 │   ├── comparison/          # ranked table, weights, recommendation, award approval
@@ -50,7 +66,8 @@ src/
 │
 └── shared/
     ├── api/client.js        # axios instance: base URL, bearer token, 401 redirect, Error(message)
-    ├── components/          # Modal, ConfirmModal, Loading, EmptyState, StatusBadge, ui/ primitives
+    ├── components/          # Modal, ConfirmModal, Loading, EmptyState, StatusBadge,
+    │                        #   ChipMultiSelect (accreditation picker), ui/ primitives
     ├── layout/Header.jsx    # wordmark, Dashboard/RFQs/Suppliers nav, account menu, theme toggle
     ├── lib/                 # format.js, status.js (status→badge mapping), clipboard.js
     └── theme/               # ThemeProvider, ThemeToggle, ThemedToaster
@@ -126,6 +143,17 @@ Pages use these instead of picking their own colours, so "incomplete" is amber a
 `formatFieldKey`, and **`toNumber`** — the backend serialises Python `Decimal`
 fields as JSON *strings*, so every numeric API value is parsed before it is
 formatted, compared or summed. A missing value renders as an em dash, not `$NaN`.
+
+Services added three more: `formatHours` (an SLA — `4` → "4h", `72` → "3 days",
+`49` → "2d 1h"), `formatRateBasis` ("per point") and `formatPercentValue`, which is
+deliberately **not** `formatPercent`: an API value of `9` already means 9%, so the
+latter would render it as 900%.
+
+`formatPrice` defaults to **SGD** rather than USD. It is Intl-driven with no
+hard-coded symbol table, so `formatPrice(1234.5)` renders "SGD 1,234.50" — the ISO
+code, not the local "$"/"S$" shorthand. That is deliberate: in a comparison table
+where a Malaysian supplier may have quoted in ringgit, an unqualified dollar sign is
+the ambiguity worth avoiding. Pass an explicit currency and it is honoured.
 
 ### Theming (`index.css` + `shared/theme`)
 

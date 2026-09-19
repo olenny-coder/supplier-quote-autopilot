@@ -7,11 +7,18 @@
  * Money, with the base currency as the default.
  *
  * This product is oriented around Singapore building services, so an unqualified
- * price is SGD — `Intl` renders that as "S$". Callers that know the currency
- * (an RFQ's `currency`, a comparison's `base_currency`) must pass it: the
- * default exists so a missing currency degrades to the base one rather than to
- * somebody else's dollars. An unusable code falls back to a plain string rather
- * than throwing inside a render.
+ * price is SGD. Callers that know the currency (an RFQ's `currency`, a comparison's
+ * `base_currency`) must pass it: the default exists so a missing currency degrades
+ * to the base one rather than to somebody else's dollars. An unusable code falls
+ * back to a plain string rather than throwing inside a render.
+ *
+ * Rendering is Intl-driven with **no hard-coded symbol table**, so SGD comes out as
+ * "SGD 1,234.50" rather than the local "S$" shorthand — measured, not assumed:
+ * `en-US`/`en-GB`/`en-MY`/`en-AU`/`en-CA`/`en-IN` all produce "SGD 1,234.50", and
+ * `en-SG` produces a bare "$1,234.50". That is fine, and arguably better, for a
+ * comparison table where a Malaysian supplier may have quoted in ringgit and a bare
+ * dollar sign is exactly the ambiguity to avoid. A hand-written symbol map would be
+ * the only way to get "S$", and it would be one more thing to keep correct.
  */
 export function formatPrice(value, currency = "SGD", fallback = "—") {
   const parsed = toNumber(value);

@@ -13,6 +13,22 @@ It is mobile-first (suppliers open it from an email on a phone), fast, and
 deliberately plain: one column, large tap targets, a sticky submit button, and
 no dark mode so the page looks the same for everyone.
 
+## What it asks for
+
+The form is driven by the **RFQ's own procurement type**, and the buyer sets that —
+this app holds no list of its own.
+
+| Procurement type | What the supplier is asked for |
+| --- | --- |
+| **Service** (the default) | Who is quoting · the rate and the **rate basis** ("per point", "per visit", "lump sum") · how fast they can attend, with the buyer's own required SLA shown as the bar · the site and its access constraints · callout charge, labour rate and materials markup · **accreditation chips** (LEW, bizSAFE, ISO, PUB…, with the buyer's required ones pre-listed) · GST · notes and attachments |
+| **Goods** | The original fields, unchanged: unit price, MOQ, lead time, Incoterms, warranty, freight, duties, taxes, discount |
+
+A goods-only group is collapsed and hidden entirely for a services RFQ, and the
+accreditation, site and SLA controls only appear where they mean something. The
+vocabulary — categories, rate bases, accreditations, tax sentence — arrives in the
+invitation preview from the API, so a change to the taxonomy is a backend-only
+change.
+
 ---
 
 ## Environment variables
@@ -102,7 +118,8 @@ a list of `missing_field_labels`. This app therefore:
 - warns **once** when required fields are blank — "we will follow up by email" —
   and sends the quote if the supplier confirms.
 
-A missing MOQ is far more useful to the buyer than no quote at all.
+A missing MOQ — or, for a service, a missing rate validity — is far more useful to
+the buyer than no quote at all.
 
 ### Spam protection
 
@@ -174,17 +191,20 @@ public_form/
     ├── lib/
     │   ├── api.js              # fetch client, ApiError kinds, XHR uploads
     │   ├── captcha.js          # provider script loading + widget rendering
-    │   └── format.js           # dates, byte sizes, clipboard, .txt download
+    │   └── format.js           # dates, money, hours, rate bases, accreditations
     ├── components/
-    │   ├── BrandedHeader.jsx   # buyer branding + RFQ summary
+    │   ├── AccreditationField.jsx  # chip multi-select over real checkboxes
+    │   ├── BrandedHeader.jsx   # buyer branding + RFQ summary (rate basis, site, SLA)
     │   ├── Captcha.jsx
     │   ├── ConfirmDialog.jsx   # "send a partial quote?" confirmation
-    │   ├── Field.jsx           # TextField / TextAreaField
+    │   ├── Field.jsx           # TextField / TextAreaField / SelectField
     │   ├── FileUpload.jsx      # validation, progress, retry, remove
+    │   ├── FormSection.jsx     # the repeated labelled card
     │   ├── Honeypot.jsx
     │   ├── LoadingSkeleton.jsx
     │   ├── Notice.jsx          # info / success / warning / danger banners
-    │   └── ProgressNotice.jsx  # stepper + required-details progress
+    │   ├── ProgressNotice.jsx  # stepper + required-details progress
+    │   └── SiteScopeCard.jsx   # read-only site, access notes and deadline
     └── pages/
         ├── QuoteFormPage.jsx   # load, validate, upload, submit
         ├── ConfirmationPage.jsx# reference number, copy, download, polling
