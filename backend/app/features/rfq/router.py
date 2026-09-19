@@ -130,7 +130,11 @@ def get_meta_options():
             for procurement_type in taxonomy.PROCUREMENT_TYPES
         },
         required_field_labels={
-            field: taxonomy.label_for(field, "service") for field in VALID_FIELDS
+            procurement_type: {
+                field: taxonomy.label_for(field, procurement_type)
+                for field in VALID_FIELDS
+            }
+            for procurement_type in taxonomy.PROCUREMENT_TYPES
         },
         criteria=criteria,
         default_weights={

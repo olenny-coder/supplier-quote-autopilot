@@ -305,7 +305,13 @@ class MetaOptions(BaseModel):
     common_accreditations: list[str] = Field(default_factory=list)
 
     required_fields: dict[str, list[str]] = Field(default_factory=dict)
-    required_field_labels: dict[str, str] = Field(default_factory=dict)
+    #: procurement type -> field -> supplier-facing label.
+    #:
+    #: Nested rather than flat because the wording genuinely differs: "moq" is a
+    #: minimum order quantity for goods and a minimum callout charge for services.
+    #: A single flat map has to be wrong for one of the two, and the buyer would see
+    #: the wrong question on the required-fields picker.
+    required_field_labels: dict[str, dict[str, str]] = Field(default_factory=dict)
     criteria: list[CriterionOption] = Field(default_factory=list)
     default_weights: dict[str, dict[str, float]] = Field(default_factory=dict)
 

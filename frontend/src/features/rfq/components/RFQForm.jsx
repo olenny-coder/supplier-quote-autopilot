@@ -192,8 +192,15 @@ function RFQForm({
   const categoryOptions = withCurrentValue(categories, formData.category);
   const rateBasisOptions = withCurrentValue(rateBases, formData.unit);
 
-  /** Supplier-facing wording, from the API, so this file owns no vocabulary. */
-  const labelFor = (key) => meta?.required_field_labels?.[key] || formatFieldKey(key);
+  /** Supplier-facing wording, from the API, so this file owns no vocabulary.
+   *
+   * Keyed by procurement type: "moq" is a minimum order quantity for goods and a
+   * minimum callout charge for services, so a single flat map would show the buyer
+   * the wrong question as soon as they switch type. Falls back to a neutral
+   * de-underscored form if the API has no label for the field.
+   */
+  const labelFor = (key) =>
+    meta?.required_field_labels?.[formData.procurement_type]?.[key] || formatFieldKey(key);
 
   // Seed the API's own defaults (procurement type, base currency, GST rate, first
   // rate basis) once the taxonomy lands. `isEdit` guards it, so opening an
