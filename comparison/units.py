@@ -39,7 +39,10 @@ UNIT_ALIASES: dict[str, tuple[str, ...]] = {
     "in": ("in", "inch", "inches"),
     "l": ("l", "liter", "liters", "litre", "litres"),
     "ml": ("ml", "milliliter", "millilitre"),
-    "sqm": ("sqm", "m2", "square meter", "square metre"),
+    "sqm": (
+        "sqm", "m2", "square meter", "square metre", "square meters",
+        "square metres", "sq m", "sq. m", "sq.m", "sqm.",
+    ),
     "hour": ("hour", "hours", "hr", "hrs"),
     "day": ("day", "days"),
     "month": ("month", "months", "mth"),
@@ -100,13 +103,31 @@ _PACK_RE = re.compile(
 )
 
 #: Units that are mass/volume/length — never interchangeable with a count.
+#:
+#: Every service rate basis gets a group of its own, even where the group holds a
+#: single member. That looks redundant — two units with the same canonical code are
+#: already comparable, and a singleton group can never match another — but it is
+#: what makes the difference *declared* rather than accidental. `group_of()` returns
+#: `None` for an undeclared canonical, and `are_comparable()` treats `None` as "only
+#: an exact string match counts", so leaving `visit` out would happen to work today
+#: and quietly stop working the moment someone added a second spelling to it.
+#:
+#: `service` is deliberately NOT in `count` any more: a per-job lump sum and a
+#: per-piece price were being reported as "not interchangeable" when they are in
+#: fact different *bases*, and the buyer's message should say so in their own words
+#: ("Quoted in 'per job' but this RFQ is priced in 'pcs'").
 _INCOMMENSURABLE_GROUPS = {
-    "count": {"pcs", "set", "pair", "box", "pallet", "roll", "sheet", "service"},
+    "count": {"pcs", "set", "pair", "box", "pallet", "roll", "sheet"},
     "mass": {"kg", "g", "t", "lb"},
     "length": {"m", "cm", "mm", "ft", "in"},
     "volume": {"l", "ml"},
     "area": {"sqm"},
     "time": {"hour", "day"},
+    # service rate bases — one group each, see above
+    "whole_scope": {"service"},
+    "attendance": {"visit"},
+    "point": {"point"},
+    "term": {"month"},
 }
 
 
@@ -205,10 +226,16 @@ def price_basis_multiplier(
         return 1.0, None
 
     if not are_comparable(quoted.canonical, target.canonical):
-        # Names the buyer's and the supplier's OWN wording. Showing the canonical
-        # codes here produced "quoted in 'service' but this RFQ is priced in
-        # 'service'" for a "per visit" quote against a "per job" RFQ, which told the
-        # buyer nothing about what to ask the supplier to change.
+        # Names both sides in their own words, and says how to fix it.
+        #
+        # Showing the canonical codes produced "Quoted in 'service' but this RFQ is
+        # priced in 'service'" for a "per visit" quote against a "per job" RFQ, which
+        # told the buyer nothing. The RFQ's side is always the buyer's raw text. The
+        # supplier's side is raw **only if the value reached here as it was typed** —
+        # a submission that went through the parser stores its rate basis as the
+        # parser normalized it, so a supplier who typed "per job" can still arrive
+        # here as "service". `display_rate_basis` is what keeps that from being the
+        # buyer's problem; see the note on it.
         return 1.0, (
             f"Quoted in '{_spoken(quoted_unit)}' but this RFQ is priced in "
             f"'{_spoken(rfq_unit)}' — no defensible conversion exists, so this "
@@ -245,3 +272,53 @@ def _spoken(value: str | None) -> str:
     text = (value or "").strip()
 
     return text or "not stated"
+
+
+#: The canonical codes that are a *service rate basis* and not a word a buyer reads.
+#:
+#: Deliberately excludes `hour`, `day`, `sqm` and `m`: those canonical codes are
+#: already the thing itself, so a supplier who writes "hrs" is better served by
+#: "hour" than by their own abbreviation, and goods behaviour stays untouched.
+#:
+#: The four below are the ones that lose their meaning when collapsed: "per job"
+#: becomes `service`, "per visit" becomes `visit`, "per point" becomes `point`, "per
+#: month" becomes `month`. A buyer reading "162.00 service" in the quotes table has
+#: been told nothing, and the rate basis is exactly the field that decides whether
+#: two maintenance quotes can be compared at all.
+SERVICE_BASIS_CODES = frozenset({"service", "visit", "point", "month"})
+
+#: Last-resort wording for a rate basis that arrived already collapsed to its code.
+_PRETTY_BASIS = {
+    "service": "per job",
+    "visit": "per visit",
+    "point": "per point",
+    "month": "per month",
+}
+
+
+def display_rate_basis(unit: str | None, fallback: str = "") -> str:
+    """A rate basis a person can read, keeping the wording they or the supplier used.
+
+    Everywhere a unit is *shown* — the quote table, the comparison table, the CSV
+    export — this is what to use, not ``normalize_unit(...).canonical``. For goods
+    the two are the same string ("pcs", "kg", "m"), so nothing changes there; for a
+    service they are not, and the canonical form is the one that reads as a bug.
+
+    The comparison itself must keep using the canonical code, which is why this is a
+    display helper and not a change to ``normalize_unit``.
+    """
+
+    text = (unit or "").strip()
+
+    if not text:
+        return fallback
+
+    canonical = normalize_unit(text).canonical
+
+    if canonical not in SERVICE_BASIS_CODES:
+        return canonical
+
+    # A phrase the supplier actually wrote. If what we were handed is already the
+    # bare canonical code ("service", "visit"), there is no wording left to recover,
+    # so spell the basis out rather than showing the code.
+    return text if text != canonical else _PRETTY_BASIS.get(canonical, text)

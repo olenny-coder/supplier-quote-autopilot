@@ -715,6 +715,7 @@ def normalize_payment_terms(value: object) -> str | None:
 
 
 def normalize_unit_text(value: object) -> str | None:
+    from comparison.units import display_rate_basis
     from comparison.units import normalize_unit
 
     if value is None:
@@ -730,4 +731,10 @@ def normalize_unit_text(value: object) -> str | None:
     if normalized.pack_size:
         return f"{normalized.canonical} of {normalized.pack_size}"
 
-    return normalized.canonical
+    # A service rate basis is a phrase, and collapsing it loses the word that makes
+    # it one: "per point" became "point" and "lump sum" became "service", so the
+    # stored quote — and every API client reading it — showed the buyer "162.00
+    # service" as the basis. `display_rate_basis` keeps the phrase for the basis
+    # codes and returns the canonical code for a real unit of measure, so "PCS" is
+    # still "pcs" and "box of 100" is still "box of 100".
+    return display_rate_basis(text, fallback=normalized.canonical)

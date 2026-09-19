@@ -40,6 +40,7 @@ from comparison.schemas import normalize_weights
 from comparison.schemas import default_weights
 from comparison.score import collect_risk_flags
 from comparison.score import score_quote
+from comparison.units import display_rate_basis
 from comparison.units import normalize_unit
 from comparison.units import price_basis_multiplier
 
@@ -80,7 +81,9 @@ def normalize_quote(
         supplier_name=quote.supplier_name,
         currency_original=normalize_currency_code(quote.currency),
         unit_price_original=quote.unit_price,
-        unit_original=normalize_unit(quote.unit).canonical,
+        unit_original=display_rate_basis(
+            quote.unit, fallback=normalize_unit(quote.unit).canonical
+        ),
         lead_time_days=quote.lead_time_days,
         moq=quote.moq,
         payment_terms=quote.payment_terms,
