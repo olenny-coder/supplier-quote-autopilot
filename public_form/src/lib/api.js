@@ -6,12 +6,14 @@
  *  - **Plain `fetch`, no axios.** This page is opened on a phone from an email,
  *    on a possibly poor connection. Every kilobyte of JS delays the paint, and
  *    the API surface is five endpoints.
- *  - **Runtime configuration, not build-time.** `VITE_API_URL` is the only
- *    environment value the app reads. Upload limits, allowed extensions, the
- *    captcha provider/site key, the honeypot field name and the rate limits all
- *    arrive from `/public/config` and the invitation preview, so policy changes
- *    never need a frontend redeploy and no secret is ever baked into a bundle
- *    that anyone can download.
+ *  - **Policy comes from the API at runtime; the API origin is baked in at build
+ *    time.** `VITE_API_URL` is the only environment value this app reads, and Vite
+ *    inlines `import.meta.env.*` when the bundle is built — so changing it on Vercel
+ *    requires a **redeploy**, not just an env-var edit. Everything else (upload
+ *    limits, allowed extensions, the captcha provider/site key, the honeypot field
+ *    name, the rate limits) arrives from `/public/config` and the invitation preview,
+ *    so policy changes never need a frontend rebuild and no secret is ever baked
+ *    into a bundle that anyone can download.
  *  - **Uploads use XMLHttpRequest.** `fetch()` cannot report upload progress,
  *    and a supplier attaching a 9 MB PDF on 4G needs to see that it is moving.
  *    XHR keeps the "no HTTP library" rule intact.
