@@ -621,6 +621,80 @@ def test_extract_json_object_recovers_a_model_object(text, expected):
     assert extract_json_object(text) == expected
 
 
+# ------------------------------------------------- reasoning-model token budget
+def test_a_reasoning_model_is_told_to_think_briefly(monkeypatch):
+    """The default free model is a *reasoning* model, and that broke every LLM call.
+
+    The defect: ``openai/gpt-oss-120b`` emits a reasoning trace before its answer.
+    Left at the provider's default trace length, Groq's free tier rejected the
+    request outright — HTTP 400 ``json_validate_failed``, "max completion tokens
+    reached before generating a valid document" — so quote parsing, follow-up
+    drafting and comparison summaries all fell back to their deterministic paths.
+    Nothing failed loudly; the product just quietly stopped using the model.
+    """
+
+    monkeypatch.setattr(settings, "LLM_REASONING_EFFORT", "low")
+
+    client = LLMClient(api_key=TEST_KEY, model="openai/gpt-oss-120b")
+
+    payload = client.build_payload(
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=1024,
+        json_mode=False,
+    )
+
+    assert payload["reasoning_effort"] == "low"
+
+
+def test_a_non_reasoning_model_is_not_sent_reasoning_effort(monkeypatch):
+    """An unconditional parameter would 400 the cheaper model someone switched to."""
+
+    monkeypatch.setattr(settings, "LLM_REASONING_EFFORT", "low")
+
+    for model in ("llama-3.3-70b-versatile", "gemini-2.0-flash", "meta-llama/llama-4-scout"):
+        client = LLMClient(api_key=TEST_KEY, model=model)
+
+        payload = client.build_payload(
+            [{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=1024,
+            json_mode=True,
+        )
+
+        assert "reasoning_effort" not in payload, model
+        assert payload["response_format"] == {"type": "json_object"}
+
+
+def test_setting_the_effort_to_empty_sends_the_parameter_at_all(monkeypatch):
+    """The documented escape hatch for an endpoint that rejects the field."""
+
+    monkeypatch.setattr(settings, "LLM_REASONING_EFFORT", "")
+
+    client = LLMClient(api_key=TEST_KEY, model="openai/gpt-oss-120b")
+
+    payload = client.build_payload(
+        [{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=1024,
+        json_mode=False,
+    )
+
+    assert "reasoning_effort" not in payload
+
+
+def test_the_json_budget_is_large_enough_for_a_trace_plus_an_answer():
+    """A tight budget is what turned a reasoning trace into a hard provider error."""
+
+    import inspect
+
+    default = (
+        inspect.signature(LLMClient.chat_json).parameters["max_tokens"].default
+    )
+
+    assert default >= 4096
+
+
 # ============================================================== rate limiting
 def test_the_sliding_window_allows_the_limit_then_denies_with_a_retry_after():
     limiter = SlidingWindowRateLimiter()

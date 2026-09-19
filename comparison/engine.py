@@ -18,6 +18,7 @@ from a comparison is the failure mode that costs money.
 """
 
 from datetime import date
+from decimal import Decimal
 
 from comparison.cost import CostModelError
 from comparison.cost import compute_cost
@@ -36,6 +37,7 @@ from comparison.schemas import ComparisonResult
 from comparison.schemas import QuoteInput
 from comparison.schemas import QuoteResult
 from comparison.schemas import normalize_weights
+from comparison.schemas import default_weights
 from comparison.score import collect_risk_flags
 from comparison.score import score_quote
 from comparison.units import normalize_unit
@@ -51,8 +53,26 @@ def normalize_quote(
     unit: str,
     rates: dict[str, float] | None,
     factors: dict[str, float] | None,
+    default_gst_rate: Decimal | None = None,
 ) -> QuoteResult:
-    """Normalize one quote into an RFQ-basis :class:`QuoteResult`."""
+    """Normalize one quote into an RFQ-basis :class:`QuoteResult`.
+
+    ``default_gst_rate`` is the RFQ's own tax rate. It applies to a quote that stated
+    no rate at all, so every quote in one RFQ is costed on the same tax basis —
+    ranking a GST-inclusive quote against a tax-exclusive one is how a buyer awards
+    the wrong supplier. A supplier who explicitly stated 0 (not registered) keeps
+    their 0, because 0 is an answer and ``None`` is not.
+    """
+
+    gst_rate = quote.gst_rate if quote.gst_rate is not None else default_gst_rate
+
+    # The cost model reads the rate from the quote object, so the resolved rate is
+    # applied to a copy rather than only to the result. Setting it on the result and
+    # leaving the quote alone was the bug that made this fallback look wired up while
+    # the tax stayed at zero.
+    billing_quote = (
+        quote if gst_rate == quote.gst_rate else quote.model_copy(update={"gst_rate": gst_rate})
+    )
 
     result = QuoteResult(
         quote_id=quote.quote_id,
@@ -67,6 +87,12 @@ def normalize_quote(
         validity_date=quote.validity_date,
         warranty_months=quote.warranty_months,
         supplier_risk=quote.supplier_risk,
+        response_time_hours=quote.response_time_hours,
+        callout_charge=quote.callout_charge,
+        labour_rate=quote.labour_rate,
+        materials_markup_pct=quote.materials_markup_pct,
+        compliance_accreditations=list(quote.compliance_accreditations or []),
+        gst_rate=gst_rate,
         completeness=quote.completeness,
         missing_fields=list(quote.missing_fields or []),
     )
@@ -105,7 +131,7 @@ def normalize_quote(
         )
 
         result.breakdown = compute_cost(
-            quote,
+            billing_quote,
             quantity=quantity,
             base_currency=base_currency,
             base_incoterms=base_incoterms,
@@ -141,7 +167,12 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
 
     rates = build_rate_table()
     factors = build_factor_table()
-    weights = normalize_weights(payload.weights)
+
+    # Weights fall back to the procurement type's defaults, so a services RFQ that
+    # never sets weights still scores response time and accreditation.
+    weights = normalize_weights(
+        payload.weights, fallback=default_weights(payload.procurement_type)
+    )
 
     base_currency = normalize_currency_code(payload.base_currency)
     base_incoterms = normalize_incoterm(payload.base_incoterms) or payload.base_incoterms
@@ -154,6 +185,8 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
         base_incoterms=base_incoterms,
         quantity=payload.quantity,
         unit=normalize_unit(payload.unit).canonical,
+        procurement_type=payload.procurement_type,
+        required_accreditations=list(payload.required_accreditations or []),
         weights=weights,
         fx_rates=describe_fx(rates),
     )
@@ -167,6 +200,7 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
             unit=payload.unit,
             rates=rates,
             factors=factors,
+            default_gst_rate=payload.gst_rate,
         )
         for quote in payload.quotes
     ]
@@ -181,6 +215,7 @@ def run_comparison(payload: ComparisonInput) -> ComparisonResult:
             weights=weights,
             quantity=payload.quantity,
             today=today,
+            required_accreditations=payload.required_accreditations,
         )
         result.risk_flags = collect_risk_flags(
             result,

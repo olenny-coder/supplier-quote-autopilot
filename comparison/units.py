@@ -42,7 +42,16 @@ UNIT_ALIASES: dict[str, tuple[str, ...]] = {
     "sqm": ("sqm", "m2", "square meter", "square metre"),
     "hour": ("hour", "hours", "hr", "hrs"),
     "day": ("day", "days"),
-    "service": ("service", "services", "lot", "lots", "job"),
+    "month": ("month", "months", "mth"),
+    "visit": ("visit", "visits", "attendance", "attendances"),
+    "point": ("point", "points"),
+    # A whole-scope price. "Lump sum", "per job" and "per service" are the same
+    # commercial basis, and a supplier who writes "lump sum" against a "per job" RFQ
+    # must not be excluded from ranking over a choice of words.
+    "service": (
+        "service", "services", "lot", "lots", "job", "jobs",
+        "lump sum", "lump-sum", "lumpsum", "call-out", "callout",
+    ),
 }
 
 _ALIAS_TO_CANONICAL = {
@@ -196,9 +205,13 @@ def price_basis_multiplier(
         return 1.0, None
 
     if not are_comparable(quoted.canonical, target.canonical):
+        # Names the buyer's and the supplier's OWN wording. Showing the canonical
+        # codes here produced "quoted in 'service' but this RFQ is priced in
+        # 'service'" for a "per visit" quote against a "per job" RFQ, which told the
+        # buyer nothing about what to ask the supplier to change.
         return 1.0, (
-            f"Quoted in '{quoted.describe()}' but this RFQ is priced in "
-            f"'{target.describe()}' — no defensible conversion exists, so this "
+            f"Quoted in '{_spoken(quoted_unit)}' but this RFQ is priced in "
+            f"'{_spoken(rfq_unit)}' — no defensible conversion exists, so this "
             f"quote is excluded from ranking. Ask the supplier to re-quote."
         )
 
@@ -221,6 +234,14 @@ def price_basis_multiplier(
         )
 
     return 1.0, (
-        f"Units '{quoted.describe()}' and '{target.describe()}' are not "
+        f"Units '{_spoken(quoted_unit)}' and '{_spoken(rfq_unit)}' are not "
         f"interchangeable; this quote is excluded from ranking."
     )
+
+
+def _spoken(value: str | None) -> str:
+    """The unit as the buyer or supplier actually wrote it, for a buyer-facing message."""
+
+    text = (value or "").strip()
+
+    return text or "not stated"

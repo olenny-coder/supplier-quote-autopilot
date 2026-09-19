@@ -377,6 +377,211 @@ def parse_warranty_months(value: object) -> int | None:
     return int(round(magnitude))
 
 
+# --------------------------------------------------------------- response time
+#: "4 hours", "within 2 hrs", "same day", "2 working days".
+#:
+#: Deliberately a separate pattern from ``LEAD_TIME_RE``: a lead time is how long
+#: production takes, a response time is how fast someone attends site, and mixing
+#: them up would score a supplier on the wrong dimension entirely.
+RESPONSE_TIME_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:-|to|–)?\s*(\d+(?:\.\d+)?)?\s*"
+    r"(business\s+days?|working\s+days?|minutes?|mins?|hours?|hrs?|h|days?|weeks?|wks?)\b",
+    re.IGNORECASE,
+)
+
+#: Phrases a maintenance supplier writes instead of a number, mapped to hours.
+#:
+#: Checked before the numeric pattern, so "within the same day" is not read as the
+#: "1 day" that the digit-free text would otherwise fail to match at all.
+#: Ordered longest-first within each meaning so "next business day" wins over
+#: "next day".
+RESPONSE_TIME_PHRASES: tuple[tuple[str, int], ...] = (
+    ("next business day", 24),
+    ("next working day", 24),
+    ("same business day", 8),
+    ("same working day", 8),
+    ("same-day", 8),
+    ("same day", 8),
+    ("within the day", 8),
+    ("next day", 24),
+    ("immediate", 1),
+    ("emergency", 4),
+    ("24/7", 4),
+    ("24x7", 4),
+    ("round the clock", 4),
+)
+
+
+def parse_response_time_hours(value: object) -> int | None:
+    """Normalize an SLA into whole hours.
+
+    A range takes its **upper** bound, matching the lead-time rule and for the same
+    reason: quoting the optimistic end of "2-4 hours" would make a supplier look
+    faster than they promised, and the buyer would plan an outage around a number
+    nobody committed to.
+
+    Sub-hour SLAs are recorded as 1 hour rather than 0. The scoring anchors are
+    whole hours, and 0 would read as instantaneous — a claim no supplier made.
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value if value >= 0 else None
+
+    if isinstance(value, float):
+        return int(round(value)) if value >= 0 else None
+
+    text = str(value).strip()
+
+    if not text or is_negative(text):
+        return None
+
+    lowered = text.lower()
+
+    for phrase, hours in RESPONSE_TIME_PHRASES:
+        if phrase in lowered:
+            return hours
+
+    match = RESPONSE_TIME_RE.search(text)
+
+    if not match:
+        # A bare number in a response-time field is hours, not days: the field is
+        # labelled, so "4" means four hours to the supplier who typed it.
+        return parse_int(text)
+
+    low = float(match.group(1))
+    high = float(match.group(2)) if match.group(2) else low
+    unit = match.group(3).lower()
+
+    magnitude = max(low, high)
+
+    if unit.startswith(("week", "wk")):
+        hours = magnitude * 7 * 24
+    elif unit.startswith(("d", "business", "working")):
+        # A working day is still a day of elapsed time on the clock, so an SLA of
+        # "2 working days" is 48 hours. It is the *lead time* rule that converts
+        # working days to calendar days at 7/5, because there production only
+        # advances on weekdays — here the supplier is simply not attending at night.
+        hours = magnitude * 24
+    elif unit.startswith("min"):
+        hours = magnitude / 60
+    else:  # hour, hr, h
+        hours = magnitude
+
+    return max(1, int(round(hours)))
+
+
+# ------------------------------------------------------------------ percentages
+PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def parse_percent(value: object, *, maximum: float = 100.0) -> Decimal | None:
+    """Normalize a percentage, e.g. a GST rate or a materials markup.
+
+    A value between 0 and 1 written *without* a per cent sign is read as a
+    fraction: ``0.09`` means 9%, because 0.09% is not a rate anyone charges. The
+    guard stops short of 1, which stays 1% — "1" is far more likely to mean one
+    per cent than a hundred.
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return None
+
+    had_sign = False
+
+    if isinstance(value, Decimal):
+        amount = value
+    elif isinstance(value, (int, float)):
+        amount = Decimal(str(value))
+    else:
+        text = str(value).strip()
+
+        if not text or is_negative(text):
+            return None
+
+        if is_declined(text):
+            return Decimal("0")
+
+        had_sign = "%" in text
+
+        match = PERCENT_RE.search(text)
+
+        if not match:
+            return None
+
+        try:
+            amount = Decimal(match.group(1))
+        except InvalidOperation:
+            return None
+
+    if not had_sign and Decimal("0") < amount < Decimal("1"):
+        amount = amount * 100
+
+    if amount < 0 or amount > Decimal(str(maximum)):
+        return None
+
+    return amount
+
+
+# --------------------------------------------------------------- accreditations
+#: Split ONLY on unambiguous separators.
+#:
+#: ``/`` and ``&`` are deliberately absent: they appear *inside* real credentials
+#: ("LEW/Technician", "Lift & Escalator"), and splitting on them would invent two
+#: accreditations the supplier never claimed. The whole point of this field is that
+#: a missing required credential caps the quote's score, so a false positive here
+#: is worse than a missed one.
+ACCREDITATION_SPLIT_RE = re.compile(r"[,;|\n\r]+")
+
+#: Cap on how many credentials are recorded. A paste of a whole company profile
+#: should not become 200 rows in a comparison table.
+MAX_ACCREDITATIONS = 20
+
+
+def parse_accreditations(value: object) -> list[str]:
+    """Split a free-text credential list into individual, de-duplicated items."""
+
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set, frozenset)):
+        items = [str(item) for item in value]
+    else:
+        text = str(value).strip()
+
+        if not text or is_negative(text) or is_declined(text):
+            return []
+
+        items = ACCREDITATION_SPLIT_RE.split(text)
+
+    collected: list[str] = []
+    seen: set[str] = set()
+
+    for item in items:
+        cleaned = str(item).strip().strip(".,;:-–—*•")
+
+        if not cleaned or is_negative(cleaned):
+            continue
+
+        key = cleaned.lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        collected.append(cleaned[:120])
+
+    return collected[:MAX_ACCREDITATIONS]
+
+
 # -------------------------------------------------------------------- validity
 def parse_date(value: object, reference: date | None = None) -> date | None:
     """Parse an absolute date, or a relative "valid 30 days" against a reference."""

@@ -15,6 +15,58 @@ from comparison.schemas import ComparisonResult
 from comparison.schemas import QuoteResult
 
 
+def describe_ranking_basis(comparison: ComparisonResult) -> str:
+    """The criteria the ranking actually used, in the buyer's own vocabulary.
+
+    A fixed sentence naming "lead time, MOQ, and warranty" was wrong for every
+    services comparison: a maintenance RFQ is ranked on the SLA and the supplier's
+    licences, and a buyer reading that MOQ decided their award would be looking for
+    a number that does not exist on the quote.
+    """
+
+    labels = {
+        "price": "price (relative to the other quotes in this batch)",
+        "response_time": "response time (SLA)",
+        "lead_time": (
+            "mobilisation time"
+            if (comparison.procurement_type or "service") == "service"
+            else "lead time"
+        ),
+        "compliance": "accreditations and licences",
+        "payment_terms": "payment terms",
+        "moq": (
+            "minimum callout"
+            if (comparison.procurement_type or "service") == "service"
+            else "minimum order quantity"
+        ),
+        "validity": "rate validity",
+        "warranty": (
+            "defect liability period"
+            if (comparison.procurement_type or "service") == "service"
+            else "warranty"
+        ),
+        "risk": "supplier risk",
+    }
+
+    # Driven by the weights actually applied, not by a fixed list: a criterion
+    # weighted to zero did not influence the score and must not be named as if it had.
+    weighted = [
+        key
+        for key, weight in (comparison.weights or {}).items()
+        if weight and key in labels
+    ]
+
+    if not weighted:
+        return "price, and the supplier's own terms"
+
+    named = [labels[key] for key in weighted]
+
+    if len(named) == 1:
+        return named[0]
+
+    return ", ".join(named[:-1]) + f", and {named[-1]}"
+
+
 def money(value: float | None, currency: str) -> str:
     if value is None:
         return "—"
@@ -64,9 +116,8 @@ def build_rationale(comparison: ComparisonResult) -> str:
 
     lines.append(
         f"{len(ranked)} of {len(comparison.results)} quote(s) were comparable. "
-        f"Ranking is a weighted score over price (relative to the other quotes in "
-        f"this batch), lead time, payment terms, MOQ, validity, warranty, and "
-        f"supplier risk. Complete quotes rank ahead of incomplete ones."
+        f"Ranking is a weighted score over {describe_ranking_basis(comparison)}. "
+        f"Complete quotes rank ahead of incomplete ones."
     )
 
     lines.append(
@@ -109,6 +160,26 @@ def build_rationale(comparison: ComparisonResult) -> str:
             f"{', '.join(winner.missing_fields) or 'required fields'}."
         )
 
+    # A high-risk supplier can be cheap precisely because they economise on the
+    # things that make them low risk. That judgement is the buyer's, not the
+    # engine's — so the arithmetic is left alone and stays re-weightable, but the
+    # recommendation says it out loud rather than leaving it buried in a flag list.
+    if (winner.supplier_risk or "low").lower() == "high":
+        lines.append(
+            f"**The recommended supplier, {winner.supplier_name}, is rated high "
+            f"risk.** The score reflects price and terms only. Confirm insurance, "
+            f"safety record and references before awarding — or put more weight on "
+            f"supplier risk if that judgement should count for more."
+        )
+
+    if winner.missing_accreditations:
+        lines.append(
+            f"**{winner.supplier_name} does not hold "
+            f"{', '.join(winner.missing_accreditations)}**, which this RFQ requires. "
+            f"Their score is capped for that reason, and the work may not lawfully "
+            f"proceed without it."
+        )
+
     if len(ranked) > 1:
         runner_up = ranked[1]
         cost_gap = float(runner_up.total_base or 0) - float(winner.total_base or 0)
@@ -146,10 +217,25 @@ def build_rationale(comparison: ComparisonResult) -> str:
     )
 
     if cheapest is not None and cheapest.quote_id != winner.quote_id:
+        # Name the actual reason when the ranking has one, rather than blaming
+        # "lead time and terms" for a quote that was ranked down for something else
+        # entirely — a missing licence, say, which the text must not bury.
+        reason = ""
+
+        if cheapest.missing_accreditations:
+            reason = (
+                ", and it does not hold "
+                + ", ".join(str(item) for item in cheapest.missing_accreditations)
+                + " — which this RFQ requires"
+            )
+        elif cheapest.completeness == "incomplete":
+            reason = ", and its submission is still incomplete"
+
         lines.append(
             f"{cheapest.supplier_name} is cheapest on landed cost "
             f"({money(float(cheapest.total_base or 0), currency)}) but ranks "
-            f"{cheapest.rank} overall once lead time and terms are weighted in."
+            f"{cheapest.rank} overall once every weighted criterion is applied"
+            f"{reason}."
         )
 
     if comparison.risks:

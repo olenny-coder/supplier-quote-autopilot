@@ -94,11 +94,11 @@ class SupplierQuote(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
-        default="USD",
-        server_default="USD",
+        default="SGD",
+        server_default="SGD",
     )
 
-    #: Production lead time in days.
+    #: Mobilisation time in days for services, production lead time for goods.
     lead_time: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
@@ -120,11 +120,14 @@ class SupplierQuote(TimestampMixin, Base):
         nullable=True,
     )
 
+    #: Mirrors the RFQ's unit or rate basis. The database default is the same one
+    #: ``RFQCreate`` resolves for a services RFQ, because that is this product's
+    #: default procurement type.
     unit: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="pcs",
-        server_default="pcs",
+        default="per job",
+        server_default="per job",
     )
 
     incoterms: Mapped[str | None] = mapped_column(
@@ -276,6 +279,49 @@ class SupplierQuote(TimestampMixin, Base):
     #: 0–1 confidence reported by the parser. Low values are surfaced for review.
     parse_confidence: Mapped[Decimal | None] = mapped_column(
         Numeric(4, 2),
+        nullable=True,
+    )
+
+    # ------------------------------------------------------------------ services
+    #: Hours until someone is on site. The services counterpart of a lead time, and
+    #: the number that most often decides who wins a maintenance job.
+    response_time_hours: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    #: Attendance fee, charged whether or not billable work follows. The most
+    #: common surprise on a maintenance invoice, which is why the comparison flags
+    #: a quote that omits it.
+    callout_charge: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    #: Hourly labour rate, for quotes that price labour and materials separately.
+    labour_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
+    #: Percentage the contractor adds to materials they supply.
+    materials_markup_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2),
+        nullable=True,
+    )
+
+    #: Licences and certifications claimed, e.g. ["bizSAFE Level 3", "ISO 9001"].
+    #: Scored against the RFQ's ``required_accreditations``: a missing one caps the
+    #: score, because the work may not lawfully proceed without it.
+    compliance_accreditations: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    #: GST or equivalent as a percentage. When set and no explicit tax amount is
+    #: given, tax is derived from it so the final cost is not a surprise.
+    gst_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2),
         nullable=True,
     )
 

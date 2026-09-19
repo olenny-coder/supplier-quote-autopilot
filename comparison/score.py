@@ -56,6 +56,23 @@ WARRANTY_ANCHORS: list[tuple[float, float]] = [
     (36, 100.0),
 ]
 
+#: Response time in HOURS -> score. The services counterpart of a lead time, and the
+#: number a facilities manager actually cares about: a burst pipe is not a
+#: production schedule. The curve is steep at the fast end on purpose — the
+#: difference between a 2-hour and a 24-hour response is a different kind of service
+#: rather than a marginal improvement — and it flattens once you are past a day.
+RESPONSE_TIME_ANCHORS: list[tuple[float, float]] = [
+    (0, 100.0),
+    (2, 100.0),
+    (4, 92.0),
+    (8, 82.0),
+    (24, 62.0),    # next business day
+    (48, 45.0),
+    (72, 32.0),
+    (168, 15.0),   # a week
+    (336, 5.0),
+]
+
 UNKNOWN_SCORE = 55.0
 
 
@@ -83,6 +100,73 @@ def score_lead_time(days: int | None) -> float:
     if days < 0:
         return 0.0
     return round(_interpolate(LEAD_TIME_ANCHORS, float(days)), 2)
+
+
+def score_response_time(hours: int | None) -> float:
+    """How fast someone is on site. Steeper than a lead time, for good reason.
+
+    A supplier who states no response time scores the neutral value rather than
+    zero: a missing SLA is a gap to chase, not evidence of bad service. That keeps
+    the ranking honest while the follow-up engine asks for the number.
+    """
+
+    if hours is None:
+        return UNKNOWN_SCORE
+
+    if hours < 0:
+        return 0.0
+
+    return round(_interpolate(RESPONSE_TIME_ANCHORS, float(hours)), 2)
+
+
+def score_compliance(
+    held: list[str] | None,
+    required: list[str] | None,
+) -> float:
+    """Accreditation coverage against what the RFQ asked for.
+
+    This is the one criterion that can make a quote *unsafe* rather than merely
+    worse. A contractor without an EMA Licensed Electrical Worker cannot legally
+    carry out electrical minor works in Singapore, so a cheap bid from one is not a
+    saving — it is a compliance problem, and the score has to say so loudly.
+
+    Returns 100 when the RFQ required nothing: absence of a requirement is not a
+    failure to meet it. Partial coverage is scored proportionally, but a quote with
+    none of the required credentials scores zero rather than the neutral value,
+    because "did not answer" and "does not hold the licence" are different problems.
+    """
+
+    required = [item.strip() for item in (required or []) if item and item.strip()]
+
+    if not required:
+        return 100.0 if held else UNKNOWN_SCORE
+
+    if not held:
+        return 0.0
+
+    held_normalized = {item.strip().casefold() for item in held if item}
+
+    matched = sum(
+        1 for item in required if item.casefold() in held_normalized
+    )
+
+    return round(100.0 * matched / len(required), 2)
+
+
+def missing_accreditations(
+    held: list[str] | None,
+    required: list[str] | None,
+) -> list[str]:
+    """The required credentials this supplier did not claim, verbatim as asked."""
+
+    required = [item for item in (required or []) if item and item.strip()]
+
+    if not required:
+        return []
+
+    held_normalized = {item.strip().casefold() for item in (held or []) if item}
+
+    return [item for item in required if item.strip().casefold() not in held_normalized]
 
 
 def parse_payment_term_days(terms: str | None) -> int | None:
@@ -272,6 +356,43 @@ def collect_risk_flags(
             "Unit of measure differs from the RFQ — verify before awarding."
         )
 
+    # ---------------------------------------------------------------- services
+    if result.missing_accreditations:
+        listed = ", ".join(result.missing_accreditations)
+        flags.append(
+            f"Does not hold required accreditation: {listed}. Confirm the work can "
+            f"be carried out lawfully before awarding."
+        )
+
+    if result.response_time_hours is None:
+        flags.append(
+            "No response time (SLA) stated — confirm how quickly they will attend."
+        )
+    elif result.response_time_hours > 24:
+        flags.append(
+            f"Response time of {result.response_time_hours}h exceeds one business day."
+        )
+
+    if result.gst_rate and result.breakdown.tax_derived_from_rate:
+        flags.append(
+            f"GST added at {result.gst_rate:g}% from the rate stated on the quote, "
+            f"not from an explicit tax figure."
+        )
+
+    if result.callout_charge is None and result.response_time_hours is not None:
+        # Not a defect, but the single most common surprise on a maintenance
+        # invoice, so it is worth asking about even when the price looks complete.
+        flags.append(
+            "No callout/attendance charge stated — confirm whether attendance is "
+            "billed separately from the works."
+        )
+
+    if result.materials_markup_pct is not None and result.materials_markup_pct > 20:
+        flags.append(
+            f"Materials markup of {result.materials_markup_pct:g}% is above the "
+            f"20% typically accepted for minor works."
+        )
+
     return flags
 
 
@@ -282,12 +403,17 @@ def score_quote(
     weights: dict[str, float],
     quantity: int,
     today: date,
+    required_accreditations: list[str] | None = None,
 ) -> QuoteResult:
     """Fill ``scores`` and ``composite_score`` on a normalized quote result."""
 
     scores = {
         "price": score_price(prices, result.total_base),
+        "response_time": score_response_time(result.response_time_hours),
         "lead_time": score_lead_time(result.lead_time_days),
+        "compliance": score_compliance(
+            result.compliance_accreditations, required_accreditations
+        ),
         "payment_terms": score_payment_terms(result.payment_terms),
         "moq": score_moq(result.moq, quantity),
         "validity": score_validity(result.validity_date, today),
@@ -297,14 +423,30 @@ def score_quote(
 
     result.scores = scores
 
-    composite = sum(scores.get(criterion, 0.0) * weights.get(criterion, 0.0) for criterion in CRITERIA)
+    composite = sum(
+        scores.get(criterion, 0.0) * weights.get(criterion, 0.0)
+        for criterion in CRITERIA
+    )
+
+    # A licence the buyer required and the supplier does not hold is not a scoring
+    # nuance — the work cannot legally be carried out. Capping the composite at 25
+    # keeps such a quote visible and rankable (the buyer may want to see it, and a
+    # quote is never silently dropped) while guaranteeing it cannot win on price.
+    if required_accreditations:
+        missing = missing_accreditations(
+            result.compliance_accreditations, required_accreditations
+        )
+
+        if missing:
+            result.missing_accreditations = missing
+            composite = min(composite, 25.0)
 
     # A quote missing required fields is still scored (the buyer may want to see
     # where it would land) but it is docked, so it can never outrank a complete
     # quote on equal economics.
     if result.completeness == "incomplete":
-        missing = len(result.missing_fields)
-        composite *= max(0.5, 1.0 - 0.08 * missing)
+        missing_count = len(result.missing_fields)
+        composite *= max(0.5, 1.0 - 0.08 * missing_count)
 
     result.composite_score = round(composite, 2)
 

@@ -9,17 +9,19 @@ importers working unchanged.
 
 import logging
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
 from app.features.invitation.model import Invitation
 from app.features.quote.model import SupplierQuote
-from app.features.rfq.model import DEFAULT_REQUIRED_FIELDS
+from app.features.rfq import taxonomy
 from app.features.rfq.model import RFQ
 from app.features.rfq.model import RFQ_STATUSES
 from app.features.rfq.schema import RFQCreate
@@ -76,7 +78,15 @@ class RFQService:
             data["deadline"] = utcnow() + timedelta(days=DEFAULT_QUOTE_WINDOW_DAYS)
 
         if data.get("required_fields") is None:
-            data["required_fields"] = list(DEFAULT_REQUIRED_FIELDS)
+            data["required_fields"] = taxonomy.default_required_fields(
+                data.get("procurement_type")
+            )
+
+        # GST defaults for the currency rather than to zero. A Singapore buyer
+        # comparing works quotes wants GST in the arithmetic from the start; a
+        # deployment elsewhere sets DEFAULT_GST_RATE=0 or sets it per RFQ.
+        if data.get("gst_rate") is None and (data.get("currency") or "").upper() == "SGD":
+            data["gst_rate"] = Decimal(str(settings.DEFAULT_GST_RATE))
 
         if data.get("status") not in RFQ_STATUSES:
             raise BadRequestError(f"Unknown RFQ status '{data.get('status')}'.")
@@ -253,6 +263,9 @@ class RFQService:
     def to_response(rfq: RFQ, counters: dict[str, int] | None = None) -> RFQResponse:
         counters = counters or {}
 
+        procurement_type = rfq.procurement_type or taxonomy.DEFAULT_PROCUREMENT_TYPE
+        required = rfq.required_field_list
+
         return RFQResponse(
             id=rfq.id,
             rfq_number=rfq.rfq_number,
@@ -261,15 +274,22 @@ class RFQService:
             quantity=rfq.quantity,
             delivery_expectation=rfq.delivery_expectation,
             notes=rfq.notes,
+            procurement_type=procurement_type,
             unit=rfq.unit,
             currency=rfq.currency,
             incoterms=rfq.incoterms,
             deadline=rfq.deadline,
-            required_fields=rfq.required_field_list,
+            required_fields=required,
             scoring_weights=rfq.scoring_weights,
             status=rfq.status,
             buyer_company=rfq.buyer_company,
             category=rfq.category,
+            site_name=rfq.site_name,
+            site_address=rfq.site_address,
+            site_access_notes=rfq.site_access_notes,
+            required_response_hours=rfq.required_response_hours,
+            required_accreditations=list(rfq.required_accreditations or []),
+            gst_rate=rfq.gst_rate,
             created_at=rfq.created_at,
             updated_at=rfq.updated_at,
             quote_count=counters.get("quote_count", 0),
@@ -278,4 +298,9 @@ class RFQService:
             pending_count=counters.get("pending_count", 0),
             incomplete_count=counters.get("incomplete_count", 0),
             ready_to_compare=counters.get("complete_priced_quotes", 0) >= 1,
+            # Supplier-facing labels, so the dashboard does not hard-code the
+            # vocabulary. Adding a field becomes a backend-only change.
+            required_field_labels=[
+                taxonomy.label_for(field, procurement_type) for field in required
+            ],
         )

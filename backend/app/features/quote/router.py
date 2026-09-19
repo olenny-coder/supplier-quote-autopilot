@@ -61,11 +61,25 @@ def _apply_completeness(db: Session, rfq: RFQ, quote: SupplierQuote) -> None:
         "duties": quote.duties,
         "taxes": quote.taxes,
         "discount": quote.discount,
+        # Services. Omitting these would mark a manually entered maintenance quote
+        # incomplete for fields the buyer had just typed in, and the follow-up agent
+        # would chase a supplier who answered on the phone.
+        "response_time_hours": quote.response_time_hours,
+        "callout_charge": quote.callout_charge,
+        "labour_rate": quote.labour_rate,
+        "materials_markup_pct": quote.materials_markup_pct,
+        "compliance_accreditations": quote.compliance_accreditations or [],
+        "gst_rate": quote.gst_rate,
     }
 
     from agents.quote_parser import evaluate
 
-    report = evaluate(fields, rfq.required_field_list, raw_text=quote.remarks)
+    report = evaluate(
+        fields,
+        rfq.required_field_list,
+        raw_text=quote.remarks,
+        procurement_type=rfq.procurement_type,
+    )
 
     quote.completeness = report.status
     quote.missing_fields = list(report.missing)

@@ -9,6 +9,12 @@ from app.features.rfq.model import RFQ
 
 
 class QuoteService:
+    #: Columns the database declares NOT NULL. An update uses ``exclude_unset``, so a
+    #: client that explicitly sends ``"unit": null`` would otherwise write NULL and
+    #: fail at commit with an IntegrityError — a 500 for what is really a "leave this
+    #: alone" request. Skipping the null is what the caller meant.
+    REQUIRED_COLUMNS = ("supplier_name", "currency", "unit")
+
     @staticmethod
     def get_all_for_rfq(
         db: Session,
@@ -63,6 +69,20 @@ class QuoteService:
 
         return quote
 
+    #: Columns the database declares NOT NULL. A PATCH-style update uses
+    #: ``exclude_unset``, so a client that explicitly sends ``"unit": null`` would
+    #: otherwise write NULL and fail at commit with an IntegrityError — a 500 for
+    #: what is really a "leave this alone" request. Silently skipping the null is the
+    #: behaviour the caller meant.
+    REQUIRED_COLUMNS = ("supplier_name", "currency", "unit")
+
+    #: Columns the database declares NOT NULL. A PATCH-style update uses
+    #: ``exclude_unset``, so a client that explicitly sends ``"unit": null`` would
+    #: otherwise write NULL and fail at commit with an IntegrityError — a 500 for
+    #: what is really a "leave this alone" request. Silently skipping the null is the
+    #: behaviour the caller meant.
+    REQUIRED_COLUMNS = ("supplier_name", "currency", "unit")
+
     @staticmethod
     def update(
         db: Session,
@@ -79,6 +99,9 @@ class QuoteService:
         )
 
         for key, value in update_data.items():
+            if value is None and key in QuoteService.REQUIRED_COLUMNS:
+                continue
+
             setattr(
                 quote,
                 key,

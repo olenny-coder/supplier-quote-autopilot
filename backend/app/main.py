@@ -44,6 +44,7 @@ from app.features.followup.scheduler import runner as scheduler_runner
 from app.features.invitation.router import router as invitation_router
 from app.features.public_form.router import router as public_form_router
 from app.features.quote.router import router as quote_router
+from app.features.rfq.router import meta_router
 from app.features.rfq.router import router as rfq_router
 from app.features.supplier.router import router as supplier_router
 
@@ -174,6 +175,7 @@ app.include_router(dashboard_router)
 app.include_router(chat_router)
 
 # ---- public (token-authenticated) ------------------------------------------
+app.include_router(meta_router)
 app.include_router(public_form_router)
 
 # ---- internal (shared secret) ----------------------------------------------

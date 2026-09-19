@@ -33,15 +33,19 @@ from agents.quote_parser.normalize import normalize_payment_terms
 from agents.quote_parser.normalize import normalize_unit_text
 from agents.quote_parser.normalize import parse_currency
 from agents.quote_parser.normalize import parse_date
+from agents.quote_parser.normalize import parse_accreditations
 from agents.quote_parser.normalize import parse_lead_time_days
 from agents.quote_parser.normalize import parse_money
 from agents.quote_parser.normalize import parse_moq
+from agents.quote_parser.normalize import parse_percent
+from agents.quote_parser.normalize import parse_response_time_hours
 from agents.quote_parser.normalize import parse_validity_date
 from agents.quote_parser.normalize import parse_warranty_months
 from agents.quote_parser.prompts import SYSTEM_PROMPT
 from agents.quote_parser.prompts import build_user_prompt
 from agents.quote_parser.schemas import CompletenessReport
 from agents.quote_parser.schemas import ParsedQuote
+from agents.quote_parser.schemas import carries_value
 
 #: field name -> coercion. Applied to LLM output so a model returning "USD 2.50"
 #: is normalized identically to the heuristic path.
@@ -62,6 +66,13 @@ COERCIONS: dict[str, object] = {
     "warranty_months": parse_warranty_months,
     "payment_terms": normalize_payment_terms,
     "incoterms": normalize_incoterms,
+    # ---- services ---------------------------------------------------------
+    "response_time_hours": parse_response_time_hours,
+    "callout_charge": parse_money,
+    "labour_rate": parse_money,
+    "materials_markup_pct": parse_percent,
+    "gst_rate": parse_percent,
+    "compliance_accreditations": parse_accreditations,
 }
 
 
@@ -99,6 +110,27 @@ FORM_FIELD_ALIASES: dict[str, str] = {
     "duties": "duties",
     "taxes": "taxes",
     "discount": "discount",
+    # ---- services -----------------------------------------------------------
+    # The buyer's RFQ asks for a "response time"; the parser records hours.
+    "response_time": "response_time_hours",
+    "response_time_hours": "response_time_hours",
+    "sla": "response_time_hours",
+    "callout_charge": "callout_charge",
+    "callout": "callout_charge",
+    "callout_fee": "callout_charge",
+    "labour_rate": "labour_rate",
+    "labor_rate": "labour_rate",
+    "hourly_rate": "labour_rate",
+    "materials_markup": "materials_markup_pct",
+    "materials_markup_pct": "materials_markup_pct",
+    "markup": "materials_markup_pct",
+    "gst_rate": "gst_rate",
+    "tax_rate": "gst_rate",
+    "compliance_accreditations": "compliance_accreditations",
+    "accreditations": "compliance_accreditations",
+    "accreditation": "compliance_accreditations",
+    "licences": "compliance_accreditations",
+    "licenses": "compliance_accreditations",
     "notes": "notes",
 }
 
@@ -120,7 +152,12 @@ def parse_form_values(
     leftovers: list[str] = []
 
     for key, raw in (values or {}).items():
-        if raw in (None, ""):
+        # An empty list (an accreditation field nobody filled in) is not a value.
+        # Without this it would fall through to the leftovers and land in
+        # ``unparsed`` as the noise "compliance_accreditations: []".
+        if raw in (None, "") or (
+            isinstance(raw, (list, tuple, set, dict)) and not raw
+        ):
             continue
 
         field = FORM_FIELD_ALIASES.get(str(key).strip().lower())
@@ -151,7 +188,11 @@ def parse_form_values(
             coerce = COERCIONS.get(field)
             value = coerce(raw) if coerce else clean_text(raw)
 
-        if value is None:
+        # `carries_value`, not `is None`: a coercion that yields an empty list (an
+        # accreditation field the parser could not split into anything) has not
+        # produced an answer, and recording it as one would mark the field as
+        # supplied by the form when it is in fact still missing.
+        if not carries_value(value):
             leftovers.append(f"{key}: {raw}")
             continue
 
@@ -182,7 +223,7 @@ def merge_parsed(*layers: ParsedQuote) -> ParsedQuote:
         contributed = False
 
         for field, value in layer.provided_fields().items():
-            if getattr(merged, field, None) in (None, ""):
+            if not carries_value(getattr(merged, field, None)):
                 setattr(merged, field, value)
                 contributed = True
 
@@ -363,6 +404,7 @@ def evaluate_completeness(
     required_fields: list[str],
     *,
     raw_text: str | None = None,
+    procurement_type: str | None = None,
 ) -> CompletenessReport:
     """Check a parsed quote against an RFQ's required-field contract."""
 
@@ -371,6 +413,7 @@ def evaluate_completeness(
         required_fields,
         blocking_question=parsed.blocking_question,
         raw_text=raw_text,
+        procurement_type=procurement_type,
     )
 
 

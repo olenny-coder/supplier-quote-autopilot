@@ -86,6 +86,9 @@ def buyer(client):
             "unit": "pcs",
             "currency": "USD",
             "incoterms": "FOB",
+            # A goods RFQ, explicitly. The application default is now `service`, and
+            # every submission in this module is a goods quote (pcs, MOQ, Incoterms).
+            "procurement_type": "goods",
             "delivery_expectation": "2026-12-01",
             "new_suppliers": SUPPLIERS,
             "send_invitations": False,

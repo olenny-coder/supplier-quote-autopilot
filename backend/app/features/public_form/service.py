@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from agents.quote_parser import evaluate_completeness
 from agents.quote_parser.parser import parse_submission
 from app.ai.completer import get_completer
+from app.core.config import settings
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
@@ -30,9 +31,16 @@ from app.features.invitation.service import InvitationService
 from app.features.public_form.schema import PublicQuoteResponse
 from app.features.public_form.schema import PublicQuoteSubmit
 from app.features.quote.model import SupplierQuote
+from app.features.rfq import taxonomy
 from app.features.rfq.model import RFQ
 
 logger = logging.getLogger(__name__)
+
+
+def _gst_rate_of(rfq: RFQ) -> float | None:
+    """The RFQ's tax rate as a float, or ``None`` when no rate applies."""
+
+    return float(rfq.gst_rate) if rfq.gst_rate is not None else None
 
 
 class PublicFormService:
@@ -112,6 +120,7 @@ class PublicFormService:
             parsed,
             rfq.required_field_list,
             raw_text=payload.notes,
+            procurement_type=rfq.procurement_type,
         )
 
         if parsed.unit_price is None and report.is_complete:
@@ -140,15 +149,57 @@ class PublicFormService:
     def rfq_context(rfq: RFQ) -> str:
         """Grounding text handed to the parser so it knows what was asked for."""
 
-        return (
-            f"RFQ {rfq.rfq_number}\n"
-            f"Item: {rfq.item_name}\n"
-            f"Specification: {rfq.specification}\n"
-            f"Quantity requested: {rfq.quantity} {rfq.unit}\n"
-            f"Buyer's preferred currency: {rfq.currency}\n"
-            f"Buyer's preferred Incoterms: {rfq.incoterms or 'not specified'}\n"
-            f"Fields the buyer requires: {', '.join(rfq.required_field_list)}"
-        )
+        procurement_type = rfq.procurement_type or taxonomy.DEFAULT_PROCUREMENT_TYPE
+
+        lines = [
+            f"RFQ {rfq.rfq_number}",
+            f"Procurement type: {procurement_type}"
+            + (
+                " (building maintenance / minor works — price is a RATE against a basis)"
+                if procurement_type == "service"
+                else " (supplied goods)"
+            ),
+            f"Item: {rfq.item_name}",
+            f"Specification: {rfq.specification}",
+            f"Quantity requested: {rfq.quantity} {rfq.unit}",
+            f"Buyer's preferred currency: {rfq.currency}",
+        ]
+
+        if rfq.category:
+            lines.append(f"Category: {rfq.category}")
+
+        if procurement_type == "service":
+            if rfq.site_name or rfq.site_address:
+                lines.append(
+                    "Site: "
+                    + ", ".join(
+                        part for part in (rfq.site_name, rfq.site_address) if part
+                    )
+                )
+
+            if rfq.site_access_notes:
+                lines.append(f"Site access: {rfq.site_access_notes}")
+
+            if rfq.required_response_hours is not None:
+                lines.append(
+                    f"Buyer's required response time: "
+                    f"{rfq.required_response_hours} hours"
+                )
+
+            if rfq.required_accreditations:
+                lines.append(
+                    "Required accreditations: "
+                    + "; ".join(str(item) for item in rfq.required_accreditations)
+                )
+        else:
+            lines.append(
+                f"Buyer's preferred Incoterms: {rfq.incoterms or 'not specified'}"
+            )
+
+        lines.append(f"Fields the buyer requires: {', '.join(rfq.required_field_list)}")
+        lines.append(taxonomy.describe_tax(rfq.currency, _gst_rate_of(rfq)))
+
+        return "\n".join(lines)
 
     # ---------------------------------------------------------------- persist
     @staticmethod
@@ -172,7 +223,7 @@ class PublicFormService:
                 invitation_id=invitation.id,
                 supplier_id=invitation.supplier_id,
                 supplier_name=invitation.supplier.name,
-                currency=parsed.currency or rfq.currency or "USD",
+                currency=parsed.currency or rfq.currency or settings.BASE_CURRENCY,
                 source="form",
                 submitted_at=utcnow(),
                 reference_number=generate_reference_number(rfq.rfq_number, invitation.id),
@@ -185,8 +236,8 @@ class PublicFormService:
         quote.contact_email = (
             parsed.contact_email or invitation.supplier.contact_email
         )
-        quote.currency = parsed.currency or rfq.currency or "USD"
-        quote.unit = parsed.unit or rfq.unit or "pcs"
+        quote.currency = parsed.currency or rfq.currency or settings.BASE_CURRENCY
+        quote.unit = parsed.unit or rfq.unit or "per job"
         quote.unit_price = parsed.unit_price
         quote.lead_time = parsed.lead_time_days
         quote.moq = parsed.moq
@@ -198,6 +249,18 @@ class PublicFormService:
         quote.duties = parsed.duties
         quote.taxes = parsed.taxes
         quote.discount = parsed.discount
+        # ---- services ------------------------------------------------------
+        quote.response_time_hours = parsed.response_time_hours
+        quote.callout_charge = parsed.callout_charge
+        quote.labour_rate = parsed.labour_rate
+        quote.materials_markup_pct = parsed.materials_markup_pct
+        quote.compliance_accreditations = list(parsed.compliance_accreditations or [])
+        # Only what the supplier actually stated. A blank means "not stated", which
+        # the comparison resolves against the RFQ's own rate so every quote in the
+        # RFQ ends up on the same tax basis; writing the RFQ rate here would erase
+        # the difference between a supplier who confirmed GST and one who said
+        # nothing.
+        quote.gst_rate = parsed.gst_rate
         quote.notes = parsed.notes or payload.notes
         quote.remarks = parsed.notes or payload.notes
         quote.unparsed_notes = parsed.unparsed
@@ -317,6 +380,8 @@ class PublicFormService:
             unit_price=str(quote.unit_price) if quote.unit_price is not None else None,
             currency=quote.currency,
             lead_time_days=quote.lead_time,
+            response_time_hours=quote.response_time_hours,
+            accreditations=list(quote.compliance_accreditations or []),
             completeness=report.status,
             missing_field_labels=list(report.missing_labels),
             message=message

@@ -110,6 +110,20 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 4
     LLM_TIMEOUT_SECONDS: float = 60.0
     LLM_ENABLED: bool = True
+
+    #: How much thinking a reasoning model is allowed to do before it answers:
+    #: "low", "medium", "high", or "" to send nothing at all.
+    #:
+    #: "low" is the default because every LLM call in this application wants a small,
+    #: strictly-shaped JSON answer, not an essay. On the recommended free Groq model
+    #: (``openai/gpt-oss-120b``) the provider default trace was long enough to consume
+    #: the whole completion budget, and Groq then rejected the request with HTTP 400
+    #: ``json_validate_failed`` — "max completion tokens reached before generating a
+    #: valid document" — so parsing, follow-up drafting and comparison summaries all
+    #: fell back to their deterministic paths without ever saying why. Set "" when
+    #: pointing LLM_MODEL at a non-reasoning model whose endpoint rejects the field.
+    LLM_REASONING_EFFORT: str = "low"
+
     #: Hard cap on how many LLM calls one batch job may issue before stopping.
     LLM_BATCH_MAX_CALLS: int = 50
 
@@ -180,7 +194,21 @@ class Settings(BaseSettings):
     SCHEDULER_SECRET: str = ""
 
     # ----------------------------------------------------------------- comparison
-    BASE_CURRENCY: str = "USD"
+    #: Default currency. SGD because this product is aimed at Singapore facilities
+    #: and building-services procurement; a deployment elsewhere sets its own.
+    BASE_CURRENCY: str = "SGD"
+
+    #: Default procurement type for a new RFQ: "service" or "goods".
+    #: "service" because maintenance and minor works are what this is for. It
+    #: selects the required-field contract, the default scoring weights, and the
+    #: vocabulary the UI and the follow-up emails use.
+    DEFAULT_PROCUREMENT_TYPE: str = "service"
+
+    #: GST (or equivalent consumption tax) applied when a supplier states a rate
+    #: but no explicit tax amount. 9% is the current Singapore rate. Set to 0 for a
+    #: buyer who is not GST-registered, or for a country with no such tax.
+    DEFAULT_GST_RATE: float = 9.0
+
     #: JSON object overriding the built-in FX table, e.g. {"EUR": 0.92}.
     FX_RATES_JSON: str = ""
     #: JSON object overriding the default scoring weights.

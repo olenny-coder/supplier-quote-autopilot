@@ -17,17 +17,127 @@ from app.core.config import settings
 from app.core.dependencies import CurrentUser
 from app.core.dependencies import DBSession
 from app.features.invitation.service import InvitationService
+from app.features.rfq import taxonomy
+from app.features.rfq.schema import VALID_FIELDS
+from app.features.rfq.schema import CriterionOption
+from app.features.rfq.schema import MetaOptions
 from app.features.rfq.schema import RFQCreate
 from app.features.rfq.schema import RFQResponse
 from app.features.rfq.schema import RFQUpdate
 from app.features.rfq.service import RFQService
 from app.features.supplier.schema import SupplierCreate
 from app.features.supplier.service import SupplierService
+from comparison.schemas import CRITERIA
 
 router = APIRouter(
     prefix="/rfqs",
     tags=["RFQs"],
 )
+
+#: Mounted at /meta, not under /rfqs, because the public supplier form needs the
+#: same vocabulary without logging in.
+meta_router = APIRouter(
+    prefix="/meta",
+    tags=["Meta"],
+)
+
+#: What each scoring criterion means, so the weight editor can explain a slider
+#: rather than showing a bare key.
+CRITERION_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "price": (
+        "Price",
+        "Total cost for the quoted scope. Scored relative to the other quotes in "
+        "this batch — the cheapest scores 100 — because a price has no absolute "
+        "meaning without a benchmark.",
+    ),
+    "response_time": (
+        "Response time (SLA)",
+        "How quickly the supplier attends site. The biggest differentiator between "
+        "two otherwise similar maintenance quotes.",
+    ),
+    "lead_time": (
+        "Mobilisation time",
+        "How long until work can start once instructed.",
+    ),
+    "compliance": (
+        "Accreditations",
+        "Licences and certifications held, against what the RFQ requires. Missing a "
+        "required one caps the score, because the work may not lawfully proceed.",
+    ),
+    "payment_terms": (
+        "Payment terms",
+        "How long the buyer has to pay. Longer is better for cash flow.",
+    ),
+    "moq": (
+        "Minimum callout / order",
+        "The smallest job or order the supplier will accept, relative to what is "
+        "being asked for.",
+    ),
+    "validity": (
+        "Rate validity",
+        "How long the quoted rates hold before they must be re-quoted.",
+    ),
+    "warranty": (
+        "Defect liability",
+        "The period during which the supplier must rectify defects at their own cost.",
+    ),
+    "risk": (
+        "Supplier risk",
+        "Your own risk rating for the supplier. More weight here means insurance, "
+        "safety record and references count for more than price.",
+    ),
+}
+
+
+@meta_router.get(
+    "/options",
+    response_model=MetaOptions,
+    summary="Taxonomy, defaults and scoring criteria",
+)
+def get_meta_options():
+    """Everything the forms and pickers need, in one request.
+
+    Served from the API rather than baked into the SPAs. Adding a service category,
+    changing a default field contract, or re-weighting a criterion then becomes a
+    backend-only change, and the buyer dashboard and the supplier form cannot drift
+    apart. It is unauthenticated because it contains no buyer data and the supplier
+    form needs the same vocabulary.
+    """
+
+    criteria = [
+        CriterionOption(
+            key=key,
+            label=CRITERION_DESCRIPTIONS.get(
+                key, (key.replace("_", " ").title(), "")
+            )[0],
+            description=CRITERION_DESCRIPTIONS.get(key, ("", ""))[1],
+        )
+        for key in CRITERIA
+    ]
+
+    return MetaOptions(
+        base_currency=settings.BASE_CURRENCY,
+        default_procurement_type=settings.DEFAULT_PROCUREMENT_TYPE,
+        default_gst_rate=settings.DEFAULT_GST_RATE,
+        procurement_types=list(taxonomy.PROCUREMENT_TYPES),
+        service_categories=list(taxonomy.SERVICE_CATEGORIES),
+        goods_categories=list(taxonomy.GOODS_CATEGORIES),
+        service_rate_bases=list(taxonomy.SERVICE_RATE_BASES),
+        goods_units=list(taxonomy.GOODS_UNITS),
+        common_accreditations=list(taxonomy.COMMON_ACCREDITATIONS),
+        required_fields={
+            procurement_type: taxonomy.default_required_fields(procurement_type)
+            for procurement_type in taxonomy.PROCUREMENT_TYPES
+        },
+        required_field_labels={
+            field: taxonomy.label_for(field, "service") for field in VALID_FIELDS
+        },
+        criteria=criteria,
+        default_weights={
+            procurement_type: taxonomy.default_weights(procurement_type)
+            for procurement_type in taxonomy.PROCUREMENT_TYPES
+        },
+    )
 
 
 @router.get(

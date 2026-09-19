@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import computed_field
+from pydantic import field_validator
 
 
 class QuoteWriteBase(BaseModel):
@@ -30,9 +31,11 @@ class QuoteWriteBase(BaseModel):
         max_length=10,
     )
 
-    lead_time: int = Field(
+    lead_time: int | None = Field(
+        default=None,
         ge=0,
-        description="Production lead time in days.",
+        description="Mobilisation time in days. Optional: a services RFQ does not "
+        "require it, and completeness flags it when the procurement type does.",
     )
 
     unit: str = Field(default="pcs", max_length=32)
@@ -61,6 +64,35 @@ class QuoteWriteBase(BaseModel):
 
     notes: str | None = Field(default=None, max_length=4000)
 
+    # ------------------------------------------------------------- services
+    # A services quote prices differently from a goods quote: a rate against a
+    # basis, an attendance promise, and often a callout charge and a labour rate on
+    # top. Every one of these is optional at the schema level, so a goods quote and
+    # a partially-filled services quote are both accepted.
+
+    #: The SLA, in hours. The single biggest differentiator between two otherwise
+    #: identical maintenance quotes.
+    response_time_hours: int | None = Field(default=None, ge=0)
+
+    #: Fixed attendance charge. Kept separate from the price because a low rate with
+    #: a large callout is the classic way a maintenance quote looks cheapest and is
+    #: not.
+    callout_charge: Decimal | None = Field(default=None, ge=0)
+
+    #: Hourly labour rate, when labour is priced separately from materials.
+    labour_rate: Decimal | None = Field(default=None, ge=0)
+
+    #: Percentage added to materials bought on the buyer's behalf.
+    materials_markup_pct: Decimal | None = Field(default=None, ge=0, le=1000)
+
+    #: Credentials the supplier claims. Compared against the RFQ's required set; a
+    #: missing required one caps the quote's score rather than excluding it.
+    compliance_accreditations: list[str] | None = Field(default=None, max_length=50)
+
+    #: Tax rate applied, as a percentage. Used to derive the tax amount when the
+    #: supplier states a rate but not a figure.
+    gst_rate: Decimal | None = Field(default=None, ge=0, le=100)
+
 
 class QuoteCreate(QuoteWriteBase):
     supplier_name: str = Field(
@@ -70,7 +102,7 @@ class QuoteCreate(QuoteWriteBase):
 
     unit_price: Decimal = Field(
         gt=0,
-        decimal_places=2,
+        decimal_places=4,
     )
 
 
@@ -88,7 +120,7 @@ class QuoteUpdate(BaseModel):
     unit_price: Decimal | None = Field(
         default=None,
         gt=0,
-        decimal_places=2,
+        decimal_places=4,
     )
 
     currency: str | None = Field(
@@ -127,6 +159,19 @@ class QuoteUpdate(BaseModel):
     contact_email: str | None = Field(default=None, max_length=255)
 
     notes: str | None = Field(default=None, max_length=4000)
+
+    # ------------------------------------------------------------- services
+    response_time_hours: int | None = Field(default=None, ge=0)
+
+    callout_charge: Decimal | None = Field(default=None, ge=0)
+
+    labour_rate: Decimal | None = Field(default=None, ge=0)
+
+    materials_markup_pct: Decimal | None = Field(default=None, ge=0, le=1000)
+
+    compliance_accreditations: list[str] | None = Field(default=None, max_length=50)
+
+    gst_rate: Decimal | None = Field(default=None, ge=0, le=100)
 
     completeness: str | None = Field(
         default=None,
@@ -208,6 +253,14 @@ class QuoteDetail(BaseModel):
     taxes: Decimal | None
     discount: Decimal | None
 
+    # ------------------------------------------------------------- services
+    response_time_hours: int | None = None
+    callout_charge: Decimal | None = None
+    labour_rate: Decimal | None = None
+    materials_markup_pct: Decimal | None = None
+    compliance_accreditations: list[str] = Field(default_factory=list)
+    gst_rate: Decimal | None = None
+
     notes: str | None
     attachments: list[QuoteAttachment] = Field(default_factory=list)
 
@@ -216,7 +269,6 @@ class QuoteDetail(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     risk_flags: list[str] = Field(default_factory=list)
     blocking_question: str | None
-
     normalized_currency: str | None
     normalized_unit_price: Decimal | None
     normalized_total_cost: Decimal | None
@@ -229,3 +281,20 @@ class QuoteDetail(BaseModel):
 
     submitted_at: datetime | None
     created_at: datetime
+
+    @field_validator(
+        "attachments",
+        "compliance_accreditations",
+        "missing_fields",
+        "risk_flags",
+        mode="before",
+    )
+    @classmethod
+    def _empty_list_for_null(cls, value: object) -> object:
+        """A JSON column that was never written is NULL, not ``[]``.
+
+        Without this, ``from_attributes`` validation fails on a quote whose list
+        column is NULL — a 500 on a read endpoint rather than an empty list.
+        """
+
+        return [] if value is None else value

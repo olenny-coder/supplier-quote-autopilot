@@ -37,15 +37,22 @@ Return exactly one JSON object with these keys. Every value is either the extrac
 value or null. Never add keys. Never wrap the object in prose.
 
 {
-  "currency": string|null,          // ISO 4217 code, e.g. "USD", "EUR", "INR"
-  "unit_price": number|null,        // per-unit price, bare number, no symbols
-  "unit": string|null,              // what the price is per, e.g. "pcs", "kg"
-  "lead_time_days": integer|null,   // production lead time in CALENDAR days
-  "moq": integer|null,              // minimum order quantity, as a number
+  "currency": string|null,          // ISO 4217 code, e.g. "SGD", "USD", "MYR"
+  "unit_price": number|null,        // rate, bare number, no symbols
+  "unit": string|null,              // what the rate is per: "per job", "per hour",
+                                    // "per visit", "per sqm", "lump sum", "pcs", "kg"
+  "response_time_hours": integer|null, // services: how fast someone attends site, in HOURS
+  "lead_time_days": integer|null,   // mobilisation/production time in CALENDAR days
+  "moq": integer|null,              // minimum order quantity or minimum callout, as a number
+  "callout_charge": number|null,    // services: fixed attendance/callout charge, if separate
+  "labour_rate": number|null,       // services: hourly labour rate, if quoted separately
+  "materials_markup_pct": number|null, // services: % added to materials, e.g. 15
+  "compliance_accreditations": [string]|null, // services: credentials claimed, one per item
+  "gst_rate": number|null,          // tax rate as a percentage, e.g. 9 (not 0.09)
   "payment_terms": string|null,     // verbatim, e.g. "Net 30", "50% advance"
   "incoterms": string|null,         // verbatim code + place, e.g. "FOB Shenzhen"
   "validity_date": string|null,     // ISO date YYYY-MM-DD
-  "warranty_months": integer|null,  // warranty length in months
+  "warranty_months": integer|null,  // warranty or defect liability period, in months
   "shipping_cost": number|null,     // freight, if quoted separately
   "duties": number|null,            // duty/clearance amount, if quoted separately
   "taxes": number|null,             // tax/VAT/GST amount, if quoted separately
@@ -62,19 +69,39 @@ value or null. Never add keys. Never wrap the object in prose.
 }
 </output>
 
+<services>
+Most submissions in this system are for building maintenance and minor works —
+electrical, mechanical, plumbing, painting, ACMV, fire protection, lift, cleaning,
+pest control — rather than for goods. Two consequences:
+
+- The "price" is a RATE with a basis. Record the basis verbatim in "unit" ("per
+  visit", "per hour", "per point", "lump sum"). A per-hour rate and a lump sum are
+  not comparable, and leaving the basis null when the supplier stated it is a defect.
+- "response_time_hours" is the SLA, not the lead time. "Attend within 4 hours" -> 4.
+  "Next business day" -> 24. "Same day" -> 8. Never put an attendance time into
+  lead_time_days, and never put a mobilisation time into response_time_hours.
+</services>
+
 <conversions>
 Convert only what is unambiguous and mechanical:
 
 - Lead time: express as CALENDAR days. "2 weeks" -> 14. "15 business days" -> 21
   (a business day is Mon-Fri, so multiply by 7/5 and round up). "3-4 weeks" -> 28 —
   take the LONGER bound, because underestimating a lead time is the expensive error.
+- Response time: express as whole HOURS, taking the LONGER bound of a range.
+  "2-4 hours" -> 4. "30 minutes" -> 1. "2 working days" -> 48.
 - "valid until 31 Dec 2026" -> "2026-12-31". "valid 30 days" with a stated quote
   date -> count the days. If no reference date exists, use null rather than guessing.
-- Warranty: "1 year" -> 12. "18 months" -> 18.
-- Money: strip currency symbols and thousands separators. "USD 45.00/pc" -> 45.00
-  with currency "USD" and unit "pcs".
+- Warranty / defect liability: "1 year" -> 12. "18 months" -> 18. "12-month DLP" -> 12.
+- Money: strip currency symbols and thousands separators. "SGD 45.00/pc" -> 45.00
+  with currency "SGD" and unit "pcs".
+- Percentages: express as the number a person would write with a % sign. "9% GST" -> 9.
+  "15% markup on materials" -> 15. Do NOT return 0.09 for 9%.
 - Percentages in payment terms stay verbatim in payment_terms; do not convert them
   into an amount.
+- Accreditations: one item per credential, exactly as written, with no splitting of a
+  single credential into two. "LEW (EMA) and bizSAFE Level 3" -> ["LEW (EMA)",
+  "bizSAFE Level 3"]. Return null when the supplier claims none.
 </conversions>
 
 <blocking_question>

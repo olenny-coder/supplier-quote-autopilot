@@ -35,18 +35,44 @@ PARSABLE_FIELDS = (
     "currency",
     "unit_price",
     "unit",
+    "response_time_hours",
     "lead_time_days",
     "moq",
+    "callout_charge",
+    "labour_rate",
+    "materials_markup_pct",
     "payment_terms",
     "incoterms",
     "validity_date",
     "warranty_months",
+    "compliance_accreditations",
+    "gst_rate",
     "shipping_cost",
     "duties",
     "taxes",
     "discount",
     "notes",
 )
+
+
+def carries_value(value: object) -> bool:
+    """True when a parsed value is an actual answer rather than an empty slot.
+
+    Shared with the completeness checker so "the supplier answered" means exactly
+    the same thing in both places. An empty list counts as *no answer*: a parse that
+    produced no accreditations has not told the buyer anything.
+    """
+
+    if value is None:
+        return False
+
+    if isinstance(value, str):
+        return bool(value.strip())
+
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+
+    return True
 
 
 class ParsedQuote(BaseModel):
@@ -61,12 +87,32 @@ class ParsedQuote(BaseModel):
     unit_price: Decimal | None = None
     unit: str | None = None
 
+    #: Services: the SLA — how fast someone attends site, in whole hours.
+    response_time_hours: int | None = None
+
     lead_time_days: int | None = None
     moq: int | None = None
     payment_terms: str | None = None
     incoterms: str | None = None
     validity_date: date | None = None
     warranty_months: int | None = None
+
+    # ------------------------------------------------- services, commercial
+    #: Fixed attendance charge, separate from the works. The single most common
+    #: hidden cost in a maintenance quote.
+    callout_charge: Decimal | None = None
+    #: Hourly labour rate, when the quote prices labour separately.
+    labour_rate: Decimal | None = None
+    #: Percentage added to materials the supplier buys on the buyer's behalf.
+    materials_markup_pct: Decimal | None = None
+
+    #: Credentials the supplier claims — LEW, bizSAFE, ISO, PUB and so on. Compared
+    #: against the RFQ's required set; a missing required one caps the score.
+    compliance_accreditations: list[str] = Field(default_factory=list)
+
+    #: The tax rate the supplier applied. Used to derive the tax when they state a
+    #: rate but no amount.
+    gst_rate: Decimal | None = None
 
     shipping_cost: Decimal | None = None
     duties: Decimal | None = None
@@ -108,7 +154,7 @@ class ParsedQuote(BaseModel):
         return {
             field: getattr(self, field)
             for field in PARSABLE_FIELDS
-            if getattr(self, field, None) not in (None, "")
+            if carries_value(getattr(self, field, None))
         }
 
 

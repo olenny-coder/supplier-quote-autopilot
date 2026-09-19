@@ -8,12 +8,14 @@ deadline, required-field contract, and scoring weights.
 
 from datetime import date
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Date
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import JSON
+from sqlalchemy import Numeric
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -27,13 +29,16 @@ RFQ_STATUSES = ("draft", "open", "closed", "awarded", "cancelled")
 
 #: The field contract a supplier's submission is checked against. Kept as plain
 #: strings (not an Enum) so new fields can be added without a migration.
+#:
+#: The default here is the SERVICES contract, because this product exists for
+#: building maintenance and minor works. ``taxonomy.py`` holds both contracts and
+#: the goods one, which this list used to be.
 DEFAULT_REQUIRED_FIELDS = [
     "unit_price",
     "currency",
-    "lead_time",
-    "moq",
+    "unit",
+    "response_time",
     "payment_terms",
-    "incoterms",
     "validity_date",
 ]
 
@@ -81,12 +86,16 @@ class RFQ(TimestampMixin, Base):
         nullable=False,
     )
 
-    #: Unit of measure the quantity is expressed in ("pcs", "kg", "m", ...).
+    #: What the quantity counts, and what a price is quoted against: a rate basis for
+    #: services ("per job", "per hour", "per sqm") or a unit of measure for goods
+    #: ("pcs", "kg", "m"). ``RFQCreate`` resolves the right default for the
+    #: procurement type — the two paths need different ones, and the ORM-level default
+    #: here is only the fallback for a row inserted without saying.
     unit: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="pcs",
-        server_default="pcs",
+        default="per job",
+        server_default="per job",
     )
 
     #: Buyer's expected delivery (kept from the base codebase).
@@ -97,12 +106,14 @@ class RFQ(TimestampMixin, Base):
 
     # --------------------------------------------------------------- commercial
     #: Preferred currency for comparison. Supplier quotes in other currencies are
-    #: converted into this one (see comparison/fx.py).
+    #: converted into this one (see comparison/fx.py). Defaults to SGD because this
+    #: product is built for Singapore facilities and building-services procurement;
+    #: ``BASE_CURRENCY`` overrides the application-level default for another market.
     currency: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
-        default="USD",
-        server_default="USD",
+        default="SGD",
+        server_default="SGD",
     )
 
     #: Preferred Incoterms (EXW / FOB / CIF / DDP ...). Quotes on other terms are
@@ -148,6 +159,59 @@ class RFQ(TimestampMixin, Base):
 
     category: Mapped[str | None] = mapped_column(
         String(128),
+        nullable=True,
+    )
+
+    # ------------------------------------------------------- what is being bought
+    #: "service" or "goods". Selects the required-field contract, the default
+    #: scoring weights, and the vocabulary the UI and follow-up emails use.
+    #: Defaults to "service": this product is for maintenance and minor works.
+    procurement_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="service",
+        server_default="service",
+        index=True,
+    )
+
+    # ------------------------------------------------ site (services)
+    #: Where the work is. The services counterpart of a delivery address, and
+    #: usually the first thing a contractor asks about.
+    site_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    site_address: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+
+    #: Access hours, permit-to-work requirements, escorts, lift booking — the
+    #: details that decide whether a site visit is a two-hour job or a two-day one.
+    site_access_notes: Mapped[str | None] = mapped_column(
+        String(2000),
+        nullable=True,
+    )
+
+    #: Response time the buyer requires, in hours. Recorded so the comparison can
+    #: flag a supplier who quoted slower than asked, rather than only ranking them.
+    required_response_hours: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    #: Accreditations the buyer requires (EMA LEW, bizSAFE, PUB, ISO…). A quote
+    #: missing one is capped in scoring, because the work may not lawfully proceed.
+    required_accreditations: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    #: GST or equivalent, percent. 9% is the current Singapore rate and the default
+    #: for an SGD RFQ; set to 0 for a buyer who is not GST-registered.
+    gst_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2),
         nullable=True,
     )
 

@@ -101,7 +101,10 @@ def build_snapshot(
         first_viewed_at=_as_aware(invitation.first_viewed_at),
         quote_completeness=quote.completeness if quote else None,
         missing_fields=missing_fields,
-        missing_field_labels=[label_for(field) for field in missing_fields],
+        missing_field_labels=[
+            label_for(field, rfq.procurement_type if rfq else None)
+            for field in missing_fields
+        ],
         blocking_question=quote.blocking_question if quote else None,
         incomplete_reminder_count=incomplete_reminder_count,
     )

@@ -13,6 +13,7 @@ from comparison import ComparisonInput
 from comparison import QuoteInput
 from comparison import comparison_to_csv
 from comparison import run_comparison
+from comparison.score import missing_accreditations
 from app.ai.completer import get_completer
 from app.ai.completer import llm_available
 from app.core.config import settings
@@ -42,8 +43,7 @@ class ComparisonService:
         rfq = quote.rfq
         missing = [str(field) for field in (quote.missing_fields or [])]
 
-        return QuoteSummary(
-            id=quote.id,
+        return QuoteSummary(            id=quote.id,
             rfq_id=quote.rfq_id,
             supplier_id=quote.supplier_id,
             invitation_id=quote.invitation_id,
@@ -63,6 +63,16 @@ class ComparisonService:
             duties=quote.duties,
             taxes=quote.taxes,
             discount=quote.discount,
+            response_time_hours=quote.response_time_hours,
+            callout_charge=quote.callout_charge,
+            labour_rate=quote.labour_rate,
+            materials_markup_pct=quote.materials_markup_pct,
+            compliance_accreditations=list(quote.compliance_accreditations or []),
+            gst_rate=quote.gst_rate,
+            missing_accreditations=missing_accreditations(
+                quote.compliance_accreditations,
+                rfq.required_accreditations if rfq is not None else None,
+            ),
             notes=quote.notes,
             remarks=quote.remarks,
             attachments=list(quote.attachments or []),
@@ -120,8 +130,8 @@ class ComparisonService:
                 QuoteInput(
                     quote_id=quote.id,
                     supplier_name=quote.supplier_name,
-                    currency=quote.currency or rfq.currency or "USD",
-                    unit=quote.unit or rfq.unit or "pcs",
+                    currency=quote.currency or rfq.currency or settings.BASE_CURRENCY,
+                    unit=quote.unit or rfq.unit or "per job",
                     unit_price=quote.unit_price,
                     lead_time_days=quote.lead_time,
                     moq=quote.moq,
@@ -133,6 +143,25 @@ class ComparisonService:
                     duties=quote.duties,
                     taxes=quote.taxes,
                     discount=quote.discount,
+                    # ---- services ------------------------------------------
+                    response_time_hours=quote.response_time_hours,
+                    callout_charge=quote.callout_charge,
+                    labour_rate=quote.labour_rate,
+                    materials_markup_pct=quote.materials_markup_pct,
+                    compliance_accreditations=list(
+                        quote.compliance_accreditations or []
+                    ),
+                    # The supplier's own stated rate wins. When they stated none at
+                    # all, the RFQ's rate applies, so every quote in this RFQ is
+                    # priced on the same tax basis — comparing a GST-inclusive quote
+                    # against a tax-exclusive one is how a buyer awards the wrong
+                    # supplier. A supplier who explicitly said 0 (not registered)
+                    # keeps their 0.
+                    gst_rate=(
+                        quote.gst_rate
+                        if quote.gst_rate is not None
+                        else rfq.gst_rate
+                    ),
                     completeness=quote.completeness or "complete",
                     missing_fields=[str(f) for f in (quote.missing_fields or [])],
                     supplier_risk=risk,
@@ -144,9 +173,18 @@ class ComparisonService:
             rfq_number=rfq.rfq_number,
             item_name=rfq.item_name,
             quantity=rfq.quantity,
-            unit=rfq.unit or "pcs",
+            unit=rfq.unit or "per job",
             base_currency=rfq.currency or settings.BASE_CURRENCY,
             base_incoterms=rfq.incoterms,
+            # Without this the engine falls back to its goods default, and a
+            # maintenance RFQ would be scored on MOQ and Incoterms while its SLA was
+            # ignored — the single criterion that separates two otherwise identical
+            # maintenance quotes.
+            procurement_type=rfq.procurement_type or "service",
+            required_accreditations=list(rfq.required_accreditations or []),
+            gst_rate=rfq.gst_rate,
+            # `or {}` so the engine substitutes the per-type defaults rather than a
+            # stored goods weight set.
             weights=rfq.scoring_weights or settings.scoring_weights or {},
             quotes=quotes,
         )

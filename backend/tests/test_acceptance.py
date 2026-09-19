@@ -51,6 +51,10 @@ def _create_rfq(client, token: str) -> dict:
             "unit": "pcs",
             "currency": "USD",
             "incoterms": "FOB",
+            # Explicitly a goods RFQ. The application default is now `service`, and
+            # this scenario is a landed-cost one: MOQ, lead time, Incoterms. Saying so
+            # keeps the test measuring what it was written to measure.
+            "procurement_type": "goods",
             "delivery_expectation": "2026-12-01",
             "notes": "Anti-rust coating required.",
             "new_suppliers": [

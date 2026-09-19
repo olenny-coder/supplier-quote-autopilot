@@ -9,10 +9,23 @@ public-form ingestion pipeline, so the seeded quotes have genuine normalized cos
 completeness assessments, and risk flags. Fixtures that bypass that pipeline would
 produce a demo whose numbers do not match what the product actually computes.
 
-The scenario is deliberately imperfect. One supplier submits a complete quote,
-one submits a partial one, one quotes in a foreign currency on DDP terms, and one
-never responds — so the dashboard shows every state the product handles, and the
-comparison has a genuine trade-off in it rather than an obvious winner.
+The scenario is the product's actual subject: a Singapore facilities team buying
+minor building works. A buyer at Marina Facilities Management issues an electrical
+minor-works RFQ in SGD with 9% GST, a 4-hour attendance requirement, and a required
+electrical licence.
+
+The four suppliers are chosen so the dashboard shows every state the product
+handles, and the comparison contains a real trade-off rather than an obvious
+winner:
+
+* one is cheapest and **not licensed** for the work — a quote the scoring caps and
+  the recommendation warns about in bold, because cheap and non-compliant is the
+  most expensive outcome available to a buyer;
+* one is dearer, faster, and fully accredited;
+* one quotes in ringgit and is **incomplete** — no payment terms, no rate validity —
+  so it is chased for exactly those two fields, and it demonstrates that an
+  incomplete quote ranks below a complete one whatever it costs;
+* one never responds at all, which is what the follow-up engine exists for.
 
 Safe to re-run: everything is keyed off the demo buyer's email address.
 """
@@ -46,6 +59,7 @@ from app.features.invitation.model import Invitation  # noqa: E402
 from app.features.invitation.service import InvitationService  # noqa: E402
 from app.features.public_form.schema import PublicQuoteSubmit  # noqa: E402
 from app.features.public_form.service import PublicFormService  # noqa: E402
+from app.features.rfq import taxonomy  # noqa: E402
 from app.features.rfq.model import RFQ  # noqa: E402
 from app.features.rfq.schema import RFQCreate  # noqa: E402
 from app.features.rfq.service import RFQService  # noqa: E402
@@ -56,95 +70,116 @@ from app.features.supplier.service import SupplierService  # noqa: E402
 DEMO_EMAIL = "buyer@demo-autopilot.example.com"
 DEMO_PASSWORD = "demo-password-123"
 
+DEMO_ITEM_NAME = "Corridor lighting replacement and AHU pipe leak — Block C"
+
 SUPPLIERS = [
     {
-        "name": "Nova Metals S.L.",
-        "contact_name": "Ana Ruiz",
-        "contact_email": "ana.ruiz@nova-metals.example.com",
-        "country": "Spain",
-        "city": "Valencia",
-        "risk_rating": "low",
+        "name": "Sin Heng M&E Pte Ltd",
+        "contact_name": "Kelvin Tan",
+        "contact_email": "kelvin.tan@sinheng-me.example.com",
+        "country": "Singapore",
+        "city": "Singapore",
+        "risk_rating": "medium",
         "external_ref": "VEND-1042",
     },
     {
-        "name": "Halcyon Fasteners Ltd",
-        "contact_name": "Ben Okafor",
-        "contact_email": "ben.okafor@halcyon.example.com",
-        "country": "Vietnam",
-        "city": "Hai Phong",
-        "risk_rating": "medium",
+        "name": "Teck Guan Facilities Services Pte Ltd",
+        "contact_name": "Serena Lim",
+        "contact_email": "serena.lim@teckguan-fs.example.com",
+        "country": "Singapore",
+        "city": "Singapore",
+        "risk_rating": "low",
         "external_ref": "VEND-2088",
     },
     {
-        "name": "Ironbridge Supply Sp. z o.o.",
-        "contact_name": "Cara Lindqvist",
-        "contact_email": "cara@ironbridge.example.com",
-        "country": "Poland",
-        "city": "Wroclaw",
+        "name": "Keng Soon Engineering Sdn Bhd",
+        "contact_name": "Farid Rahman",
+        "contact_email": "farid@kengsoon-eng.example.com",
+        "country": "Malaysia",
+        "city": "Johor Bahru",
         "risk_rating": "high",
         "external_ref": "VEND-3311",
     },
     {
-        "name": "Meridian Components GmbH",
-        "contact_name": "DieterSchmidt",
-        "contact_email": "d.schmidt@meridian.example.com",
-        "country": "Germany",
-        "city": "Stuttgart",
+        "name": "Lian Aik Building Services Pte Ltd",
+        "contact_name": "Grace Wong",
+        "contact_email": "grace.wong@lianaik.example.com",
+        "country": "Singapore",
+        "city": "Singapore",
         "risk_rating": "low",
         "external_ref": "VEND-1177",
     },
 ]
 
-#: keyed by supplier name -> the submission that supplier makes. Ironbridge is
-#: absent on purpose: a non-responder is what the follow-up engine exists for.
+#: Supplier name -> the submission that supplier makes. Lian Aik is absent on
+#: purpose: a non-responder is what the follow-up engine exists for.
+#:
+#: The keys are the form's own wire names, so seeding exercises the same public
+#: contract a supplier's browser posts to.
 SUBMISSIONS = {
-    "Nova Metals S.L.": PublicQuoteSubmit(
-        supplier_name="Nova Metals S.L.",
-        contact_email="ana.ruiz@nova-metals.example.com",
-        currency="USD",
-        unit_price="2.48",
-        unit="pcs",
-        lead_time="3 weeks",
-        moq="500",
+    "Sin Heng M&E Pte Ltd": PublicQuoteSubmit(
+        supplier_name="Sin Heng M&E Pte Ltd",
+        contact_email="kelvin.tan@sinheng-me.example.com",
+        currency="SGD",
+        unit_price="148.00",
+        unit="per point",
+        response_time_hours="8",
+        callout_charge="180",
+        labour_rate="68",
+        materials_markup_pct="15",
+        # Deliberately missing the EMA Licensed Electrical Worker the buyer requires.
+        # The work may not lawfully proceed without one, so the score is capped and
+        # the recommendation says so in bold rather than quietly ranking them first.
+        compliance_accreditations=["bizSAFE Level 3"],
+        gst_rate="9",
         payment_terms="Net 30",
-        incoterms="FOB Valencia",
-        validity_date="2026-12-31",
-        warranty_months="12",
-        shipping_cost="180",
+        validity_date="2027-03-31",
         notes=(
-            "Zinc plating included. Price holds for orders above 500 pcs. "
-            "Smaller runs are possible but carry a setup charge we would need to quote."
+            "Fittings supplied at cost plus 15%. Attendance within 8 working hours, "
+            "weekday dayworks rate. Our licensed electrician covers this from the "
+            "east depot, so mobilisation depends on his schedule."
         ),
     ),
-    "Halcyon Fasteners Ltd": PublicQuoteSubmit(
-        supplier_name="Halcyon Fasteners Ltd",
-        contact_email="ben.okafor@halcyon.example.com",
-        currency="USD",
-        unit_price="2.19",
-        unit="pcs",
-        lead_time="8 weeks",
-        # Deliberately incomplete: no MOQ, no payment terms, no validity date.
-        incoterms="FOB Hai Phong",
+    "Teck Guan Facilities Services Pte Ltd": PublicQuoteSubmit(
+        supplier_name="Teck Guan Facilities Services Pte Ltd",
+        contact_email="serena.lim@teckguan-fs.example.com",
+        currency="SGD",
+        unit_price="162.00",
+        unit="per point",
+        response_time_hours="2",
+        callout_charge="120",
+        labour_rate="74",
+        materials_markup_pct="12",
+        compliance_accreditations=[
+            "EMA Licensed Electrical Worker (LEW)",
+            "bizSAFE Level 3",
+            "ISO 9001",
+        ],
+        gst_rate="9",
+        payment_terms="Net 30",
+        validity_date="2027-06-30",
         notes=(
-            "Quoted ex-stock from the Hai Phong plant. Our finance team is still "
-            "confirming the payment terms for new accounts."
+            "Two-hour response between 9am and 5pm, 4 hours outside those hours. "
+            "EMA licensed electrician on the resident team and we already hold the "
+            "building's access induction. Rate held for 12 months."
         ),
     ),
-    "Meridian Components GmbH": PublicQuoteSubmit(
-        supplier_name="Meridian Components GmbH",
-        contact_email="d.schmidt@meridian.example.com",
-        currency="EUR",
-        unit_price="2.85",
-        unit="pcs",
-        lead_time="18 days",
-        moq="250",
-        payment_terms="Net 45",
-        incoterms="DDP Hamburg",
-        validity_date="2026-11-15",
-        warranty_months="24",
+    "Keng Soon Engineering Sdn Bhd": PublicQuoteSubmit(
+        supplier_name="Keng Soon Engineering Sdn Bhd",
+        contact_email="farid@kengsoon-eng.example.com",
+        currency="MYR",
+        unit_price="620.00",
+        unit="per point",
+        response_time_hours="4",
+        callout_charge="350",
+        labour_rate="95",
+        materials_markup_pct="18",
+        # Deliberately incomplete: no payment terms and no rate validity, which is
+        # exactly what the follow-up will ask for and nothing more.
         notes=(
-            "Delivered duty paid to your Hamburg warehouse. Fastest option; the "
-            "unit price reflects the delivered terms."
+            "Cross-border crew from Johor Bahru, so we need 48 hours' notice for "
+            "site access. Quoted in ringgit; our finance team in Kuala Lumpur still "
+            "has to confirm the payment terms for Singapore accounts."
         ),
     ),
 }
@@ -178,9 +213,9 @@ def create_buyer(db) -> User:
             email=DEMO_EMAIL,
             password=DEMO_PASSWORD,
             full_name="Dana Whitfield",
-            company_name="Acme Industrial Supply",
-            contact_email="procurement@acme-industrial.example.com",
-            contact_phone="+1 555 0142",
+            company_name="Marina Facilities Management Pte Ltd",
+            contact_email="procurement@marina-fm.example.com",
+            contact_phone="+65 6221 0142",
         ),
     )
 
@@ -218,7 +253,7 @@ def create_rfq(db, user: User) -> RFQ:
     existing = db.scalar(
         select(RFQ).where(
             RFQ.user_id == user.id,
-            RFQ.item_name == "Hex Bolt M10x60 SS304",
+            RFQ.item_name == DEMO_ITEM_NAME,
         )
     )
 
@@ -230,33 +265,52 @@ def create_rfq(db, user: User) -> RFQ:
         db=db,
         user_id=user.id,
         payload=RFQCreate(
-            item_name="Hex Bolt M10x60 SS304",
-            specification="DIN 933, A2-70 stainless, zinc-plated, full thread",
-            quantity=5000,
-            unit="pcs",
-            currency="USD",
-            incoterms="FOB",
-            delivery_expectation=date.today() + timedelta(days=75),
+            item_name=DEMO_ITEM_NAME,
+            specification=(
+                "Supply and install 24 nos. LED corridor light fittings in place of "
+                "the existing 2x18W T8 batten fittings (like-for-like lumen output "
+                "acceptable), and rectify the chilled-water leak at the AHU riser "
+                "isolation valve including making good the affected ceiling tile. "
+                "Includes testing of the corridor lighting circuit and the local "
+                "isolator after completion."
+            ),
+            procurement_type="service",
+            category="Electrical Minor Works",
+            quantity=24,
+            unit="per point",
+            currency="SGD",
+            delivery_expectation=date.today() + timedelta(days=45),
             deadline=utcnow() + timedelta(days=10),
-            category="Fasteners",
+            # No `required_fields`: the procurement type's own contract applies —
+            # unit price, currency, rate basis, response time, payment terms, rate
+            # validity. MOQ and Incoterms would be meaningless here.
+            site_name="Marina Bay Tower, Block C",
+            site_address="12 Marina Boulevard, Singapore 018982",
+            site_access_notes=(
+                "Access 9am-5pm Mon-Fri. Lift booking required 48 hours ahead for "
+                "equipment above 20 kg; a building escort is provided. Works are in "
+                "occupied corridors, so no drilling before 10am and no hot works "
+                "without a permit."
+            ),
+            required_response_hours=4,
+            required_accreditations=[
+                "EMA Licensed Electrical Worker (LEW)",
+                "bizSAFE Level 3",
+            ],
+            gst_rate=9,
             notes=(
-                "Anti-rust coating required. Batch certificates (EN 10204 3.1) must "
-                "accompany each delivery. Annual volume is roughly 60,000 pcs."
+                "Photographs of each completed point are required for handover. The "
+                "leak is on the AHU riser isolation valve; include for isolating and "
+                "draining the riser. Invoicing against a purchase order only."
             ),
             buyer_company=user.company_name,
-            required_fields=[
-                "unit_price",
-                "currency",
-                "lead_time",
-                "moq",
-                "payment_terms",
-                "incoterms",
-                "validity_date",
-            ],
         ),
     )
 
-    print(f"  created RFQ {rfq.rfq_number} ({rfq.quantity:,} {rfq.unit})")
+    print(
+        f"  created RFQ {rfq.rfq_number} "
+        f"({rfq.quantity:,} {rfq.unit}, {rfq.currency}, GST {rfq.gst_rate}%)"
+    )
 
     return rfq
 
@@ -328,6 +382,85 @@ def backdate_sends(db, invitations: list[Invitation], hours: int = 100) -> None:
     print(f"  sends backdated by {hours}h so reminders are due")
 
 
+def verify(db, rfq: RFQ) -> list[str]:
+    """Invariants the demo must satisfy, for ``--check``.
+
+    The seed drives the real pipeline, so it is the cheapest proof that a fresh
+    clone works end to end — and the first thing a new user runs. A silently broken
+    seed (a schema change the local database predates, a required field the form no
+    longer sends) is therefore worse than a broken test: it is the first impression.
+    These assertions are what CI runs.
+    """
+
+    from app.features.comparison.repository import latest_for_rfq
+    from app.features.rfq.service import RFQService as _RFQService
+
+    problems: list[str] = []
+
+    if rfq.procurement_type != "service":
+        problems.append(
+            f"demo RFQ is procurement_type={rfq.procurement_type!r}, expected 'service'"
+        )
+
+    counters = _RFQService.counts(db, [rfq.id]).get(rfq.id, {})
+
+    if counters.get("invitation_count", 0) != len(SUPPLIERS):
+        problems.append(
+            f"expected {len(SUPPLIERS)} invitations, got "
+            f"{counters.get('invitation_count', 0)}"
+        )
+
+    if counters.get("quote_count", 0) != len(SUBMISSIONS):
+        problems.append(
+            f"expected {len(SUBMISSIONS)} quotes, got {counters.get('quote_count', 0)}"
+        )
+
+    if counters.get("incomplete_count", 0) < 1:
+        problems.append(
+            "no incomplete quote: the follow-up demo would have nothing to chase"
+        )
+
+    if counters.get("pending_count", 0) < 1:
+        problems.append("no non-responder: the reminder demo would be empty")
+
+    comparison = latest_for_rfq(db, rfq.id)
+
+    if comparison is None:
+        problems.append("no comparison was computed")
+    else:
+        if comparison.recommended_quote_id is None:
+            problems.append("the comparison made no recommendation")
+
+        if comparison.base_currency != "SGD":
+            problems.append(
+                f"comparison currency is {comparison.base_currency!r}, expected 'SGD'"
+            )
+
+        service_weights = taxonomy.default_weights("service")
+
+        if (comparison.weights or {}) != service_weights:
+            problems.append(
+                "the comparison did not use the SERVICE weights — the engine fell "
+                f"back to another set: {comparison.weights}"
+            )
+
+        deltas = [r for r in (comparison.results or []) if r.get("callout_charge")]
+
+        if not deltas:
+            problems.append("no quote carried a callout charge")
+
+    drafts = db.scalars(
+        select(FollowUp).where(FollowUp.rfq_id == rfq.id, FollowUp.status == "draft")
+    ).all()
+
+    if not drafts:
+        problems.append(
+            "no follow-up drafts: run with --run-scheduler to exercise the chase"
+        )
+
+    return problems
+
+
 def report(db, user: User, rfq: RFQ) -> None:
     from app.features.comparison.repository import latest_for_rfq
     from app.features.rfq.service import RFQService as _RFQService
@@ -343,6 +476,13 @@ def report(db, user: User, rfq: RFQ) -> None:
     print()
     print("  " + "-" * 66)
     print(f"  RFQ            {rfq.rfq_number} — {rfq.item_name}")
+    print(f"  Type           {rfq.procurement_type} / {rfq.category}")
+    print(f"  Basis          {rfq.quantity:,} {rfq.unit}, {rfq.currency}")
+    print(f"  SLA required   {rfq.required_response_hours}h")
+    print(
+        "  Licensed for   "
+        + (", ".join(str(item) for item in (rfq.required_accreditations or [])) or "—")
+    )
     print(f"  Invited        {counters.get('invitation_count', 0)}")
     print(f"  Responded      {counters.get('responded_count', 0)}")
     print(f"  Incomplete     {counters.get('incomplete_count', 0)}")
@@ -361,7 +501,7 @@ def report(db, user: User, rfq: RFQ) -> None:
             print(
                 f"  Recommended    {winner.get('supplier_name')} "
                 f"(score {winner.get('composite_score')}, "
-                f"{winner.get('total_base')} {comparison.base_currency} landed)"
+                f"{winner.get('total_base')} {comparison.base_currency} incl. GST)"
             )
 
         print(f"  Conclusive     {bool(comparison.is_conclusive)}")
@@ -387,6 +527,12 @@ def main() -> int:
         "--skip-compare",
         action="store_true",
         help="do not compute a comparison (submissions still normalize their quotes)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the seeded workspace satisfies the demo's invariants and exit "
+        "non-zero if not. Used by CI.",
     )
     args = parser.parse_args()
 
@@ -416,7 +562,7 @@ def main() -> int:
         print("Public form links (send these to the suppliers):")
         for invitation in invitations:
             print(
-                f"  {invitation.supplier.name:<34} "
+                f"  {invitation.supplier.name:<40} "
                 f"{InvitationService.to_response(invitation).form_link}"
             )
         print()
@@ -447,6 +593,19 @@ def main() -> int:
 
         db.refresh(rfq)
         report(db, user, rfq)
+
+        if args.check:
+            print("Checking the demo workspace...")
+
+            problems = verify(db, rfq)
+
+            if problems:
+                for problem in problems:
+                    print(f"  FAIL: {problem}")
+
+                return 1
+
+            print("  every demo invariant holds")
 
         print("Demo data ready.")
         print()

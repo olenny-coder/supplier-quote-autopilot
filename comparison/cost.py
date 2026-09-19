@@ -104,16 +104,42 @@ def compute_cost(
     def converted(value: Decimal | None) -> Decimal:
         if value is None:
             return Decimal("0")
-        return convert(money(value), source_currency, target_currency, rate_table)[0]
+
+        # Quantized, not returned raw. A converted amount is a rate times an amount,
+        # so a foreign-currency callout came back as 28 decimal places
+        # (99.78723404255319148936170212) in the API and on the dashboard. Money is
+        # two decimal places; the FX rate keeps its own precision on
+        # ``breakdown.fx_rate`` where it belongs.
+        return convert(money(value), source_currency, target_currency, rate_table)[
+            0
+        ].quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
     breakdown.shipping = converted(quote.shipping_cost)
     breakdown.duties = converted(quote.duties)
     breakdown.taxes = converted(quote.taxes)
     breakdown.discount = converted(quote.discount)
 
+    # Services: the callout/attendance fee occupies the same slot as freight — a
+    # real cost of getting the work done that is not part of the measured works.
+    # A supplier may quote one or the other, never both, but the model does not
+    # care: it sums whatever was stated.
+    breakdown.callout = converted(quote.callout_charge)
+
+    # GST (or equivalent): only derive it when the supplier stated a rate but no
+    # explicit amount. Deriving over an explicit figure would double-count, and
+    # deriving from nothing would invent a cost the supplier never quoted.
+    if breakdown.taxes == 0 and quote.gst_rate:
+        taxable = breakdown.goods + breakdown.shipping + breakdown.callout
+        derived = (taxable * money(quote.gst_rate) / Decimal("100")).quantize(
+            TWO_PLACES, rounding=ROUND_HALF_UP
+        )
+        breakdown.taxes = derived
+        breakdown.tax_derived_from_rate = True
+
     breakdown.subtotal = (
         breakdown.goods
         + breakdown.shipping
+        + breakdown.callout
         + breakdown.duties
         + breakdown.taxes
         - breakdown.discount

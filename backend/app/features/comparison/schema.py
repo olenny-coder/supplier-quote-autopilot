@@ -40,6 +40,21 @@ class QuoteSummary(BaseModel):
     taxes: Decimal | None
     discount: Decimal | None
 
+    # ------------------------------------------------------------- services
+    # Carried through so the dashboard's quote table can show the SLA, the callout
+    # charge and the credentials without a second request per row.
+    response_time_hours: int | None = None
+    callout_charge: Decimal | None = None
+    labour_rate: Decimal | None = None
+    materials_markup_pct: Decimal | None = None
+    compliance_accreditations: list[str] = Field(default_factory=list)
+    gst_rate: Decimal | None = None
+
+    #: Required credentials this supplier did not claim. Served from the same helper
+    #: the scoring run uses, so the quotes table and the comparison table cannot
+    #: disagree about who is short of a licence.
+    missing_accreditations: list[str] = Field(default_factory=list)
+
     notes: str | None
     remarks: str | None
     attachments: list[dict] = Field(default_factory=list)

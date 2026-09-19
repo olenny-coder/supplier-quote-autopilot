@@ -51,6 +51,9 @@ def _seed_rfq_with_suppliers(db, count: int = 3):
             deadline=utcnow() + timedelta(days=10),
             currency="USD",
             incoterms="FOB",
+            # A goods RFQ, explicitly. The application default is `service`, and these
+            # regressions are about quotes that carry Incoterms and an MOQ.
+            procurement_type="goods",
             buyer_company="Acme",
         ),
     )

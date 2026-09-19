@@ -38,6 +38,35 @@ class PublicQuoteSubmit(BaseModel):
     taxes: str | None = Field(default=None, max_length=64)
     discount: str | None = Field(default=None, max_length=64)
 
+    # ---- services ----------------------------------------------------------
+    # Building maintenance and minor works. Every numeric value is a *string* on
+    # purpose: a supplier types "within 4 hours" or "15%", and normalizing that is
+    # the parser's job, not the schema's. A 422 on "same day" would lose the whole
+    # submission.
+    #
+    # These are part of a PUBLIC contract — the supplier form and anything a supplier
+    # wires up themselves post to it — so both spellings of the three fields whose
+    # names are not obvious are accepted. Pydantic's default is to *ignore* unknown
+    # keys, so a client that guessed wrong would receive a 201 while its SLA and
+    # accreditations were dropped on the floor, and since a services RFQ requires a
+    # response time, the quote would be stored incomplete and the buyer would chase a
+    # supplier who had already answered. Accepting both spellings costs three fields
+    # and removes that failure mode entirely; the parser's alias table already maps
+    # them onto one canonical field.
+    response_time_hours: str | None = Field(default=None, max_length=64)
+    callout_charge: str | None = Field(default=None, max_length=64)
+    labour_rate: str | None = Field(default=None, max_length=64)
+    materials_markup_pct: str | None = Field(default=None, max_length=64)
+    #: Either a list (the form's chips) or a delimited string (a hand-rolled client).
+    compliance_accreditations: list[str] | str | None = None
+    gst_rate: str | None = Field(default=None, max_length=64)
+
+    #: Compatibility aliases. The buyer's RFQ field names, accepted so a client that
+    #: reads its vocabulary off `/rfqs/{id}` still works.
+    response_time: str | None = Field(default=None, max_length=64)
+    materials_markup: str | None = Field(default=None, max_length=64)
+    accreditations: str | None = Field(default=None, max_length=1000)
+
     #: Free-text notes. Parsed by the quote-parser agent.
     notes: str | None = Field(default=None, max_length=4000)
 
@@ -64,6 +93,11 @@ class PublicQuoteResponse(BaseModel):
     unit_price: str | None = None
     currency: str | None = None
     lead_time_days: int | None = None
+
+    #: Confirmed back to the supplier so they can see their SLA and credentials were
+    #: recorded — the two service fields most often mis-entered.
+    response_time_hours: int | None = None
+    accreditations: list[str] = Field(default_factory=list)
 
     completeness: str = "complete"
     #: Supplier-facing phrasing of anything still missing, so they can fix it now.

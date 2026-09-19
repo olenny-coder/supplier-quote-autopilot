@@ -136,7 +136,10 @@ def to_response(followup: FollowUp) -> FollowUpResponse:
         body=followup.body,
         llm_generated=bool(followup.llm_generated),
         requested_fields=requested,
-        requested_labels=[label_for(field) for field in requested],
+        requested_labels=[
+            label_for(field, rfq.procurement_type if rfq else None)
+            for field in requested
+        ],
         provider_message_id=followup.provider_message_id,
         error=followup.error,
         scheduled_for=followup.scheduled_for,

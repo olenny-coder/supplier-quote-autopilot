@@ -26,6 +26,7 @@ from app.features.invitation.model import Invitation
 from app.features.invitation.schema import InvitationPreview
 from app.features.invitation.schema import InvitationResponse
 from app.features.quote.model import SupplierQuote
+from app.features.rfq import taxonomy
 from app.features.rfq.model import RFQ
 from app.features.supplier.model import Supplier
 
@@ -238,6 +239,23 @@ class InvitationService:
             ),
             form_link=settings.public_form_link(invitation.rfq_id, invitation.token),
             notes=rfq.notes,
+            procurement_type=rfq.procurement_type or "service",
+            required_field_labels=[
+                taxonomy.label_for(field, rfq.procurement_type)
+                for field in rfq.required_field_list
+            ],
+            site_text=", ".join(
+                part
+                for part in (rfq.site_name, rfq.site_address)
+                if part
+            )
+            or None,
+            required_response_hours=rfq.required_response_hours,
+            required_accreditations=list(rfq.required_accreditations or []),
+            tax_note=taxonomy.describe_tax(
+                rfq.currency,
+                float(rfq.gst_rate) if rfq.gst_rate is not None else None,
+            ),
         )
 
         return EmailMessage(
@@ -487,8 +505,23 @@ class InvitationService:
             unit=rfq.unit,
             delivery_expectation=rfq.delivery_expectation,
             deadline=rfq.deadline,
-            currency=rfq.currency,
+                currency=rfq.currency,
             incoterms=rfq.incoterms,
+            procurement_type=rfq.procurement_type or "service",
+            site_name=rfq.site_name,
+            site_address=rfq.site_address,
+            site_access_notes=rfq.site_access_notes,
+            required_response_hours=rfq.required_response_hours,
+            required_accreditations=list(rfq.required_accreditations or []),
+            gst_rate=(
+                float(rfq.gst_rate) if rfq.gst_rate is not None else None
+            ),
+            tax_note=taxonomy.describe_tax(
+                rfq.currency,
+                float(rfq.gst_rate) if rfq.gst_rate is not None else None,
+            ),
+            rate_bases=list(taxonomy.rate_bases_for(rfq.procurement_type)),
+            category=rfq.category,
             buyer_company=rfq.buyer_company
             or (owner.company_name if owner else "Our company"),
             buyer_contact_email=(owner.contact_email or owner.email) if owner else None,
@@ -496,6 +529,10 @@ class InvitationService:
             supplier_name=supplier.name if supplier else "",
             contact_name=supplier.contact_name if supplier else None,
             required_fields=rfq.required_field_list,
+            required_field_labels=[
+                taxonomy.label_for(field, rfq.procurement_type)
+                for field in rfq.required_field_list
+            ],
             already_submitted=invitation.quote is not None,
             is_expired=expires_at is not None and expires_at <= now,
             expires_at=expires_at,

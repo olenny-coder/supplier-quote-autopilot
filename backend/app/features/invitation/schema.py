@@ -92,6 +92,33 @@ class InvitationPreview(BaseModel):
     currency: str
     incoterms: str | None
 
+    #: "service" or "goods". Drives which fields the supplier form renders.
+    procurement_type: str = "service"
+
+    #: Services. Where the work is, and what the supplier needs to know before they
+    #: can price it — access hours, permits, escorts, lift availability. A rate quoted
+    #: without knowing it is a working-hours job is not comparable to one that is.
+    site_name: str | None = None
+    site_address: str | None = None
+    site_access_notes: str | None = None
+
+    #: The buyer's own SLA expectation. Shown to the supplier as the bar to beat.
+    required_response_hours: int | None = None
+
+    #: Credentials the buyer requires. A quote missing one of these is still ranked,
+    #: but its score is capped and the shortfall is stated in plain words.
+    required_accreditations: list[str] = Field(default_factory=list)
+
+    #: Tax handling, already phrased for the supplier.
+    gst_rate: float | None = None
+    tax_note: str = ""
+
+    #: The rate bases that make sense for this RFQ, for the unit dropdown.
+    rate_bases: list[str] = Field(default_factory=list)
+
+    #: The RFQ's category, so the form can label itself ("Electrical Minor Works").
+    category: str | None = None
+
     buyer_company: str
     buyer_contact_email: str | None
     buyer_contact_phone: str | None
@@ -101,6 +128,11 @@ class InvitationPreview(BaseModel):
 
     #: Required fields the buyer asked for — shown as "required" markers.
     required_fields: list[str] = Field(default_factory=list)
+
+    #: The same fields, worded for the supplier and for what is being bought. Served
+    #: rather than derived in the browser so the form's wording and the follow-up
+    #: email's wording cannot drift apart.
+    required_field_labels: list[str] = Field(default_factory=list)
 
     #: True when a quote already exists for this invitation (re-submission).
     already_submitted: bool = False

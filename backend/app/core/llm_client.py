@@ -43,6 +43,37 @@ logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
+#: Substrings that identify a model which emits a reasoning trace before its answer.
+#:
+#: Matched rather than compared exactly because providers version model ids
+#: ("gpt-oss-120b", "o3-mini-2025-01-31", "deepseek/deepseek-r1:free"). Kept
+#: deliberately narrow: a false positive sends ``reasoning_effort`` to a model that
+#: does not accept it, which the provider answers with a 400 — turning a working
+#: configuration into a broken one.
+REASONING_MODEL_MARKERS = (
+    "gpt-oss",
+    "deepseek-r1",
+    "deepseek-reasoner",
+    "/r1",
+    "-r1",
+    "qwq",
+    "qwen3",
+    "magistral",
+    "reasoning",
+    "thinking",
+    "o1-",
+    "o3-",
+    "o4-",
+)
+
+
+def is_reasoning_model(model: str | None) -> bool:
+    """True when the model is expected to emit a reasoning trace before its answer."""
+
+    name = (model or "").strip().lower()
+
+    return bool(name) and any(marker in name for marker in REASONING_MODEL_MARKERS)
+
 
 class LLMClient:
     """Async OpenAI-compatible chat client."""
@@ -111,6 +142,49 @@ class LLMClient:
             self._recent_calls.append(time.monotonic())
 
     # ---------------------------------------------------------------------- HTTP
+    def build_payload(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+    ) -> dict[str, Any]:
+        """Assemble the request body. Split out so it can be asserted without network.
+
+        The reasoning-model handling below is the difference between every LLM feature
+        working and every LLM feature silently falling back, so it is covered by a
+        test that never touches a provider.
+        """
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        # Reasoning models (Groq's gpt-oss, OpenAI's o-series, DeepSeek R1, Qwen3
+        # thinking) spend the completion budget thinking before they answer. Left at
+        # the provider default they can burn the whole budget on the trace and never
+        # emit the JSON at all — which is how quote parsing, follow-up drafting and
+        # comparison summaries all degraded to their deterministic fallbacks while
+        # reporting nothing worse than a warning. `reasoning_effort: "low"` is the
+        # provider-supported way to keep the trace short.
+        #
+        # Sent ONLY to a model known to accept it: a non-reasoning model on the same
+        # endpoint rejects the unknown parameter with a 400, so sending it
+        # unconditionally would break the cheaper model someone switched to.
+        effort = settings.LLM_REASONING_EFFORT
+
+        if effort and is_reasoning_model(self.model):
+            payload["reasoning_effort"] = effort
+
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        return payload
+
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -127,15 +201,12 @@ class LLMClient:
                 "LLM_MODEL (see README §Free LLM provider)."
             )
 
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
+        payload = self.build_payload(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+        )
 
         last_error: Exception | None = None
 
@@ -209,12 +280,22 @@ class LLMClient:
         user: str,
         *,
         temperature: float = 0.0,
-        max_tokens: int = 1500,
+        max_tokens: int = 4096,
     ) -> dict[str, Any]:
         """Chat completion constrained to a JSON object.
 
         Providers differ in how strictly they honour ``response_format``, so the
         raw text goes through :func:`extract_json_object` before ``json.loads``.
+
+        ``max_tokens`` defaults to 4096 rather than a tight 1500 because the
+        recommended free models are **reasoning** models: they emit a reasoning
+        trace before the JSON. At 1500 the trace consumed the whole budget and the
+        provider rejected the call outright — Groq returned HTTP 400
+        ``json_validate_failed`` / "max completion tokens reached before generating a
+        valid document" on every JSON call, so quote parsing, follow-up drafting and
+        comparison summaries silently fell back to the deterministic path. The
+        setting is paired with ``LLM_REASONING_EFFORT``, which keeps the trace short
+        in the first place; this is the second half of that fix.
         """
 
         content = await self.chat(

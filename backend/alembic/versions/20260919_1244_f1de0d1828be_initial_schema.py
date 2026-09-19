@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: 891cfb2e4072
+Revision ID: f1de0d1828be
 Revises: 
-Create Date: 2026-09-18 22:50:50.478205
+Create Date: 2026-09-19 12:44:43.436638
 
 """
 from typing import Sequence
@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '891cfb2e4072'
+revision: str = 'f1de0d1828be'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -44,9 +44,9 @@ def upgrade() -> None:
     sa.Column('item_name', sa.String(length=255), nullable=False),
     sa.Column('specification', sa.String(length=1000), nullable=False),
     sa.Column('quantity', sa.Integer(), nullable=False),
-    sa.Column('unit', sa.String(length=32), server_default='pcs', nullable=False),
+    sa.Column('unit', sa.String(length=32), server_default='per job', nullable=False),
     sa.Column('delivery_expectation', sa.Date(), nullable=False),
-    sa.Column('currency', sa.String(length=10), server_default='USD', nullable=False),
+    sa.Column('currency', sa.String(length=10), server_default='SGD', nullable=False),
     sa.Column('incoterms', sa.String(length=16), nullable=True),
     sa.Column('deadline', sa.DateTime(timezone=True), nullable=True),
     sa.Column('required_fields', sa.JSON(), nullable=True),
@@ -54,6 +54,13 @@ def upgrade() -> None:
     sa.Column('status', sa.String(length=16), server_default='open', nullable=False),
     sa.Column('buyer_company', sa.String(length=255), nullable=True),
     sa.Column('category', sa.String(length=128), nullable=True),
+    sa.Column('procurement_type', sa.String(length=16), server_default='service', nullable=False),
+    sa.Column('site_name', sa.String(length=255), nullable=True),
+    sa.Column('site_address', sa.String(length=1000), nullable=True),
+    sa.Column('site_access_notes', sa.String(length=2000), nullable=True),
+    sa.Column('required_response_hours', sa.Integer(), nullable=True),
+    sa.Column('required_accreditations', sa.JSON(), nullable=True),
+    sa.Column('gst_rate', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('notes', sa.String(length=2000), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
@@ -63,6 +70,7 @@ def upgrade() -> None:
     with op.batch_alter_table('rfqs', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_rfqs_deadline'), ['deadline'], unique=False)
         batch_op.create_index(batch_op.f('ix_rfqs_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_rfqs_procurement_type'), ['procurement_type'], unique=False)
         batch_op.create_index(batch_op.f('ix_rfqs_rfq_number'), ['rfq_number'], unique=False)
         batch_op.create_index(batch_op.f('ix_rfqs_status'), ['status'], unique=False)
         batch_op.create_index(batch_op.f('ix_rfqs_user_id'), ['user_id'], unique=False)
@@ -164,12 +172,12 @@ def upgrade() -> None:
     sa.Column('reference_number', sa.String(length=64), nullable=True),
     sa.Column('supplier_name', sa.String(length=255), nullable=False),
     sa.Column('unit_price', sa.Numeric(precision=12, scale=2), nullable=True),
-    sa.Column('currency', sa.String(length=10), server_default='USD', nullable=False),
+    sa.Column('currency', sa.String(length=10), server_default='SGD', nullable=False),
     sa.Column('lead_time', sa.Integer(), nullable=True),
     sa.Column('payment_terms', sa.String(length=255), nullable=True),
     sa.Column('remarks', sa.String(length=2000), nullable=True),
     sa.Column('contact_email', sa.String(length=255), nullable=True),
-    sa.Column('unit', sa.String(length=32), server_default='pcs', nullable=False),
+    sa.Column('unit', sa.String(length=32), server_default='per job', nullable=False),
     sa.Column('incoterms', sa.String(length=16), nullable=True),
     sa.Column('moq', sa.Integer(), nullable=True),
     sa.Column('validity_date', sa.Date(), nullable=True),
@@ -196,6 +204,12 @@ def upgrade() -> None:
     sa.Column('unparsed_notes', sa.String(length=4000), nullable=True),
     sa.Column('blocking_question', sa.String(length=1000), nullable=True),
     sa.Column('parse_confidence', sa.Numeric(precision=4, scale=2), nullable=True),
+    sa.Column('response_time_hours', sa.Integer(), nullable=True),
+    sa.Column('callout_charge', sa.Numeric(precision=12, scale=2), nullable=True),
+    sa.Column('labour_rate', sa.Numeric(precision=12, scale=2), nullable=True),
+    sa.Column('materials_markup_pct', sa.Numeric(precision=6, scale=2), nullable=True),
+    sa.Column('compliance_accreditations', sa.JSON(), nullable=True),
+    sa.Column('gst_rate', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['invitation_id'], ['invitations.id'], ondelete='SET NULL'),
@@ -326,6 +340,7 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_rfqs_user_id'))
         batch_op.drop_index(batch_op.f('ix_rfqs_status'))
         batch_op.drop_index(batch_op.f('ix_rfqs_rfq_number'))
+        batch_op.drop_index(batch_op.f('ix_rfqs_procurement_type'))
         batch_op.drop_index(batch_op.f('ix_rfqs_id'))
         batch_op.drop_index(batch_op.f('ix_rfqs_deadline'))
 
