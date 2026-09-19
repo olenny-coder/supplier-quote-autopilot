@@ -3,7 +3,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button, Card } from "@/shared/components/ui";
-import { formatDateTime, formatFieldKey, formatNumber } from "@/shared/lib/format";
+import {
+  formatDateTime,
+  formatFieldKey,
+  formatHours,
+  formatNumber,
+  formatPercentValue,
+  formatRateBasis,
+  toNumber,
+} from "@/shared/lib/format";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 
 import { updateRFQ } from "../api";
@@ -16,10 +24,24 @@ import RFQForm from "./RFQForm";
  * PATCHes only the RFQ's own fields. The suppliers step is switched off here:
  * invitations are managed on the Suppliers tab, and re-submitting them from an
  * edit form would be a confusing second path to the same action.
+ *
+ * Services carry a second half — site, SLA, accreditations, GST — which is shown
+ * only for a service RFQ and hidden for goods, matching the form that edits it.
  */
 function RFQDetailsTab({ rfq, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const isGoods = rfq.procurement_type === "goods";
+  const responseHours = toNumber(rfq.required_response_hours);
+  const gstRate = toNumber(rfq.gst_rate);
+
+  // The API sends the supplier-facing wording alongside the keys, in the same
+  // order. Falling back to the key map only covers an older payload.
+  const requiredLabels =
+    rfq.required_field_labels?.length === rfq.required_fields?.length
+      ? rfq.required_field_labels
+      : (rfq.required_fields || []).map((field) => formatFieldKey(field));
 
   const handleSave = async (payload) => {
     try {
@@ -75,17 +97,38 @@ function RFQDetailsTab({ rfq, onChanged }) {
             <DetailItem label="Status">
               <StatusBadge status={rfq.status} domain="rfq" />
             </DetailItem>
-            <DetailItem label="Item" value={rfq.item_name} />
+            <DetailItem
+              label="Procurement type"
+              value={isGoods ? "Goods" : "Service"}
+            />
+            <DetailItem label="Category" value={rfq.category || "—"} />
+            <DetailItem label="Scope" value={rfq.item_name} />
             <DetailItem label="Specification" value={rfq.specification} />
             <DetailItem
-              label="Quantity"
-              value={`${formatNumber(rfq.quantity)} ${rfq.unit || "pcs"}`}
+              label={isGoods ? "Quantity" : "Quantity / effort"}
+              value={`${formatNumber(rfq.quantity)} ${
+                isGoods ? rfq.unit || "" : formatRateBasis(rfq.unit)
+              }`}
+            />
+            <DetailItem
+              label={isGoods ? "Unit" : "Rate basis"}
+              value={isGoods ? rfq.unit || "—" : formatRateBasis(rfq.unit)}
             />
             <DetailItem label="Currency" value={rfq.currency} />
-            <DetailItem label="Incoterms" value={rfq.incoterms || "—"} />
-            <DetailItem label="Category" value={rfq.category || "—"} />
             <DetailItem
-              label="Delivery expectation"
+              label="GST rate"
+              value={gstRate === null ? "—" : formatPercentValue(gstRate)}
+            />
+            {isGoods ? (
+              <DetailItem label="Incoterms" value={rfq.incoterms || "—"} />
+            ) : (
+              <DetailItem
+                label="Required response time"
+                value={responseHours === null ? "—" : formatHours(responseHours)}
+              />
+            )}
+            <DetailItem
+              label={isGoods ? "Delivery expectation" : "Works wanted by"}
               value={rfq.delivery_expectation || "—"}
             />
             <DetailItem
@@ -97,16 +140,43 @@ function RFQDetailsTab({ rfq, onChanged }) {
               label="Ready to compare"
               value={rfq.ready_to_compare ? "Yes" : "Not yet"}
             />
+
+            {!isGoods && (
+              <>
+                <DetailItem label="Site name" value={rfq.site_name || "—"} />
+                <DetailItem label="Site address" value={rfq.site_address || "—"} />
+                <DetailItem label="Site access notes" value={rfq.site_access_notes || "—"} span />
+                <DetailItem label="Required accreditations" span>
+                  {rfq.required_accreditations?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {rfq.required_accreditations.map((accreditation) => (
+                        <span
+                          key={accreditation}
+                          className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary-soft-fg"
+                        >
+                          {accreditation}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-subtle">
+                      None required — compliance is not scored
+                    </span>
+                  )}
+                </DetailItem>
+              </>
+            )}
+
             <DetailItem label="Notes" value={rfq.notes || "—"} span />
             <DetailItem label="Required fields" span>
-              {rfq.required_fields?.length ? (
+              {requiredLabels.length ? (
                 <div className="flex flex-wrap gap-1.5">
-                  {rfq.required_fields.map((field) => (
+                  {requiredLabels.map((label, index) => (
                     <span
-                      key={field}
+                      key={`${rfq.required_fields?.[index] || label}-${index}`}
                       className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted"
                     >
-                      {formatFieldKey(field)}
+                      {label}
                     </span>
                   ))}
                 </div>

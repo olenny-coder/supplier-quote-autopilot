@@ -2,7 +2,13 @@ import { Link } from "react-router-dom";
 
 import { Badge, Card } from "@/shared/components/ui";
 import { buttonClass } from "@/shared/lib/button";
-import { formatNumber, formatRelativeTime, toNumber } from "@/shared/lib/format";
+import {
+  formatHours,
+  formatNumber,
+  formatRateBasis,
+  formatRelativeTime,
+  toNumber,
+} from "@/shared/lib/format";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 
 /**
@@ -12,6 +18,11 @@ import { StatusBadge } from "@/shared/components/StatusBadge";
  * out of who was invited, who is still silent, whose quote is incomplete, and
  * whether there is enough complete data to run a comparison. The countdown
  * badge turns red past the deadline rather than just going quiet.
+ *
+ * Services additionally carry three things a buyer scans for: the category (what
+ * trade), the rate basis (what the price is per), and the required response time
+ * — the SLA is the number that most often decides a maintenance award, so it is a
+ * badge rather than a line of prose.
  */
 function RFQCard({ rfq, onDelete }) {
   const invited = toNumber(rfq.invitation_count) || 0;
@@ -19,6 +30,9 @@ function RFQCard({ rfq, onDelete }) {
   const pending = toNumber(rfq.pending_count) || 0;
   const incomplete = toNumber(rfq.incomplete_count) || 0;
   const quotes = toNumber(rfq.quote_count) || 0;
+
+  const isGoods = rfq.procurement_type === "goods";
+  const responseHours = toNumber(rfq.required_response_hours);
 
   const progress = invited ? Math.round((responded / invited) * 100) : 0;
 
@@ -35,6 +49,13 @@ function RFQCard({ rfq, onDelete }) {
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="neutral">{rfq.rfq_number}</Badge>
             <StatusBadge status={rfq.status} domain="rfq" />
+            <Badge variant={isGoods ? "neutral" : "primary"}>
+              {isGoods ? "Goods" : "Service"}
+            </Badge>
+            {rfq.category && <Badge variant="neutral">{rfq.category}</Badge>}
+            {!isGoods && responseHours !== null && (
+              <Badge variant="warning">SLA {formatHours(responseHours)}</Badge>
+            )}
             {rfq.ready_to_compare && (
               <Badge variant="success">Ready to compare</Badge>
             )}
@@ -49,11 +70,15 @@ function RFQCard({ rfq, onDelete }) {
               <span className="text-muted">{rfq.specification}</span>
             )}
             <span className="text-muted">
-              {formatNumber(rfq.quantity)} {rfq.unit || "pcs"}
+              {formatNumber(rfq.quantity)}{" "}
+              {isGoods ? rfq.unit || "" : formatRateBasis(rfq.unit)}
             </span>
+            {rfq.site_name && <span className="text-subtle">{rfq.site_name}</span>}
             <span className="text-subtle">
-              Delivery {rfq.delivery_expectation || "—"}
+              {isGoods ? "Delivery" : "Wanted by"}{" "}
+              {rfq.delivery_expectation || "—"}
             </span>
+            <span className="text-subtle">Quotes in {rfq.currency}</span>
           </div>
 
           {/* Progress: responded / invited */}

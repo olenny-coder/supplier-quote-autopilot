@@ -5,7 +5,14 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Badge, Button } from "@/shared/components/ui";
 import { buttonClass } from "@/shared/lib/button";
-import { formatDateTime, formatNumber, formatRelativeTime } from "@/shared/lib/format";
+import {
+  formatDateTime,
+  formatHours,
+  formatNumber,
+  formatRateBasis,
+  formatRelativeTime,
+  toNumber,
+} from "@/shared/lib/format";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 
 import ComparisonTab from "@/features/comparison/components/ComparisonTab";
@@ -98,6 +105,9 @@ function RFQDetailsPage() {
   const deadline = rfq.deadline ? new Date(rfq.deadline) : null;
   const overdue = deadline ? deadline.getTime() < Date.now() : false;
 
+  const isGoods = rfq.procurement_type === "goods";
+  const responseHours = toNumber(rfq.required_response_hours);
+
   return (
     <div className="space-y-6">
       <div>
@@ -122,6 +132,13 @@ function RFQDetailsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="neutral">{rfq.rfq_number}</Badge>
               <StatusBadge status={rfq.status} domain="rfq" />
+              <Badge variant={isGoods ? "neutral" : "primary"}>
+                {isGoods ? "Goods" : "Service"}
+              </Badge>
+              {rfq.category && <Badge variant="neutral">{rfq.category}</Badge>}
+              {!isGoods && responseHours !== null && (
+                <Badge variant="warning">SLA {formatHours(responseHours)}</Badge>
+              )}
               {rfq.ready_to_compare && (
                 <Badge variant="success">Ready to compare</Badge>
               )}
@@ -140,8 +157,11 @@ function RFQDetailsPage() {
 
             <p className="mt-2 text-sm text-muted">
               {rfq.specification} · {formatNumber(rfq.quantity)}{" "}
-              {rfq.unit || "pcs"} · quotes in {rfq.currency}
-              {rfq.incoterms ? ` · ${rfq.incoterms}` : ""}
+              {isGoods ? rfq.unit || "" : formatRateBasis(rfq.unit)} · quotes in{" "}
+              {rfq.currency}
+              {rfq.site_name ? ` · ${rfq.site_name}` : ""}
+              {!isGoods ? ` · wanted by ${rfq.delivery_expectation}` : ""}
+              {isGoods && rfq.incoterms ? ` · ${rfq.incoterms}` : ""}
               {rfq.deadline ? ` · deadline ${formatDateTime(rfq.deadline)}` : ""}
             </p>
           </div>
@@ -216,7 +236,7 @@ function RFQDetailsPage() {
           )}
 
           {activeTab === "quotes" && (
-            <QuotesTab rfqId={rfq.id} quotes={quotes} onChanged={refresh} />
+            <QuotesTab rfq={rfq} quotes={quotes} onChanged={refresh} />
           )}
 
           {activeTab === "comparison" && (

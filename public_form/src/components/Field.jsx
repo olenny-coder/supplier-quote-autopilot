@@ -1,7 +1,7 @@
 /**
- * Shared field primitives (text inputs, textareas) used by the quote form.
+ * Shared field primitives (text inputs, selects, textareas) used by the quote form.
  *
- * Two deliberate decisions, both easy to undo by accident:
+ * Three deliberate decisions, all easy to undo by accident:
  *
  *  1. **The required marker is not the HTML `required` attribute.** If we set
  *     `required`, the browser would silently block submission of a partial
@@ -12,6 +12,11 @@
  *  2. **Errors are described, not popped.** Each errored control gets
  *     `aria-invalid` and an `aria-describedby` pointing at the message, so a
  *     screen-reader user hears the reason when they reach the field.
+ *  3. **Warnings are not errors.** A rate that is slower than the buyer asked for
+ *     is worth flagging to the contractor on site, but it is their commercial
+ *     call, so it is described rather than blocked — and it is deliberately *not*
+ *     a live region, because a message that re-announces itself on every
+ *     keystroke is unusable with a screen reader.
  */
 
 const CONTROL_BASE =
@@ -27,12 +32,14 @@ function controlClass(error, className) {
     .join(" ");
 }
 
-/** Builds the id set for a field's label/hint/error wiring. Not a hook. */
-function fieldIds(id, { hint, error }) {
+/** Builds the id set for a field's label/hint/warning/error wiring. Not a hook. */
+function fieldIds(id, { hint, error, warning }) {
   const hintId = hint ? `${id}-hint` : undefined;
+  const warningId = warning ? `${id}-warning` : undefined;
   const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
-  return { hintId, errorId, describedBy };
+  const describedBy =
+    [hintId, warningId, errorId].filter(Boolean).join(" ") || undefined;
+  return { hintId, warningId, errorId, describedBy };
 }
 
 function FieldLabel({ htmlFor, label, required, optionalLabel = "(optional)" }) {
@@ -67,6 +74,19 @@ function FieldHint({ id, children }) {
   );
 }
 
+function FieldWarning({ id, children }) {
+  if (!children) return null;
+  return (
+    <p
+      id={id}
+      className="flex items-start gap-1.5 text-xs font-medium leading-5 text-warning-soft-fg"
+    >
+      <span aria-hidden="true">!</span>
+      <span>{children}</span>
+    </p>
+  );
+}
+
 function FieldError({ id, children }) {
   if (!children) return null;
   return (
@@ -96,6 +116,7 @@ export function TextField({
   required = false,
   error,
   hint,
+  warning,
   placeholder,
   type = "text",
   inputMode,
@@ -106,7 +127,11 @@ export function TextField({
   prefix,
   optionalLabel,
 }) {
-  const { hintId, errorId, describedBy } = fieldIds(id, { hint, error });
+  const { hintId, warningId, errorId, describedBy } = fieldIds(id, {
+    hint,
+    error,
+    warning,
+  });
 
   return (
     <div className="space-y-1.5">
@@ -162,6 +187,70 @@ export function TextField({
           className={controlClass(error)}
         />
       )}
+      <FieldWarning id={warningId}>{warning}</FieldWarning>
+      <FieldError id={errorId}>{error}</FieldError>
+    </div>
+  );
+}
+
+/**
+ * Picker for a value drawn from a known set (the rate basis).
+ *
+ * A native `<select>` rather than a custom listbox: on a phone it opens the
+ * platform's own picker, which is faster and more familiar to a contractor
+ * standing on site than anything we could draw. The current value is always
+ * among `options` — the caller appends it when the RFQ carries something outside
+ * the standard set.
+ */
+export function SelectField({
+  id,
+  name,
+  label,
+  value,
+  onValueChange,
+  options = [],
+  placeholder = "Choose one",
+  required = false,
+  error,
+  hint,
+  warning,
+  disabled = false,
+  optionalLabel,
+}) {
+  const { hintId, warningId, errorId, describedBy } = fieldIds(id, {
+    hint,
+    error,
+    warning,
+  });
+
+  return (
+    <div className="space-y-1.5">
+      <FieldLabel
+        htmlFor={id}
+        label={label}
+        required={required}
+        optionalLabel={optionalLabel}
+      />
+      <FieldHint id={hintId}>{hint}</FieldHint>
+      <select
+        id={id}
+        name={name}
+        value={value}
+        onChange={(event) => onValueChange(name, event.target.value)}
+        disabled={disabled}
+        aria-required={required || undefined}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy}
+        className={controlClass(error)}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <FieldWarning id={warningId}>{warning}</FieldWarning>
       <FieldError id={errorId}>{error}</FieldError>
     </div>
   );

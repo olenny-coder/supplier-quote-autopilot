@@ -26,6 +26,50 @@ export function FormField({ label, hint, required, error, children }) {
   );
 }
 
+/**
+ * Select over a list that came from the API.
+ *
+ * `options` accepts plain strings (`meta.service_categories`,
+ * `meta.service_rate_bases`) or `{ value, label }` pairs. When the list is empty
+ * — the taxonomy request failed, or has not landed yet — it degrades to a
+ * free-text input rather than rendering a picker with nothing in it: a buyer
+ * typing a category is a better outcome than a form they cannot submit, and it
+ * keeps this component free of any hard-coded category list.
+ */
+export function Select({
+  options = [],
+  placeholder = "",
+  allowEmpty = false,
+  emptyLabel = "Not specified",
+  className = "",
+  ...props
+}) {
+  const classes = `${inputClass} ${className}`;
+
+  if (!options.length) {
+    return (
+      <input type="text" placeholder={placeholder} className={classes} {...props} />
+    );
+  }
+
+  return (
+    <select className={classes} {...props}>
+      {allowEmpty && <option value="">{emptyLabel}</option>}
+
+      {options.map((option) => {
+        const value = typeof option === "string" ? option : option.value;
+        const label = typeof option === "string" ? option : option.label;
+
+        return (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        );
+      })}
+    </select>
+  );
+}
+
 export function Button({
   variant = "primary",
   size = "md",

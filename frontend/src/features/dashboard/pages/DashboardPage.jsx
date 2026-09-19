@@ -62,8 +62,8 @@ function DashboardPage() {
           </h1>
           <p className="mt-2 text-muted">
             {user?.company_name
-              ? `${user.company_name} — RFQs, supplier responses and award decisions in one place.`
-              : "RFQs, supplier responses and award decisions in one place."}
+              ? `${user.company_name} — service requests, contractor rates and award decisions in one place.`
+              : "Service requests, contractor rates and award decisions in one place."}
           </p>
         </div>
 
@@ -82,7 +82,7 @@ function DashboardPage() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
             </svg>
-            Create RFQ
+            New request
           </Link>
         </div>
       </header>

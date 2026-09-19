@@ -34,7 +34,7 @@ function AuthLayout({ title, subtitle, footer, children }) {
               Supplier Quote Autopilot
             </span>
             <span className="mt-1 text-[11px] font-medium text-subtle">
-              RFQ collection &amp; quote analysis
+              Building services procurement
             </span>
           </span>
         </Link>
@@ -45,8 +45,8 @@ function AuthLayout({ title, subtitle, footer, children }) {
           </h2>
           <ul className="mt-6 space-y-3 text-sm text-muted">
             {[
-              "One private form link per supplier — no logins for them.",
-              "Land cost normalisation across currency and Incoterms.",
+              "One private form link per contractor — no logins for them.",
+              "Rates, response times and licences normalised side by side.",
               "Reminders and chasers queued for your approval.",
               "A signed audit entry for every award decision.",
             ].map((item) => (

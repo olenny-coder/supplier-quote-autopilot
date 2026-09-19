@@ -108,6 +108,11 @@ function ComparisonTab({ rfqId, comparison: initialComparison, quoteCount = 0, o
             {comparison.awaiting_approval && (
               <Badge variant="warning">Awaiting approval</Badge>
             )}
+            {/* Which field set is being scored: a service snapshot weights the
+                SLA and accreditations, a goods one weights lead time and MOQ. */}
+            <Badge variant="neutral">
+              {comparison.procurement_type === "goods" ? "Goods" : "Service"}
+            </Badge>
           </div>
 
           <p className="mt-1 text-xs text-muted">
@@ -116,6 +121,12 @@ function ComparisonTab({ rfqId, comparison: initialComparison, quoteCount = 0, o
             {formatDateTime(comparison.created_at)}
             {comparison.llm_model ? ` · narrative by ${comparison.llm_model}` : ""}
           </p>
+
+          {comparison.required_accreditations?.length > 0 && (
+            <p className="mt-1 text-xs text-danger">
+              Required licences: {comparison.required_accreditations.join(", ")}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -184,6 +195,7 @@ function ComparisonTab({ rfqId, comparison: initialComparison, quoteCount = 0, o
 
         <WeightEditor
           weights={comparison.weights}
+          procurementType={comparison.procurement_type || ""}
           busy={busy}
           onApply={(weights) => handleRun(weights)}
         />

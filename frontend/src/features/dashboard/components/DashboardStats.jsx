@@ -8,11 +8,16 @@ import { formatNumber } from "@/shared/lib/format";
  *
  * Defined as data rather than six bespoke blocks: adding a counter is one entry
  * here, and every card keeps the same number/format/hint rhythm.
+ *
+ * Field names are the API's and are not touched — only the wording, which reads
+ * for a facilities team buying maintenance and minor works: a "request" is a work
+ * order waiting on rates, and what is chased is a missing detail rather than a
+ * missing field.
  */
 const CARD_DEFINITIONS = [
   {
     key: "rfqs_open",
-    label: "Open RFQs",
+    label: "Open requests",
     hint: (summary) => `${formatNumber(summary.rfqs_total)} in total`,
     tone: "primary",
     action: { label: "View RFQs", to: "/rfqs" },
@@ -30,7 +35,7 @@ const CARD_DEFINITIONS = [
   },
   {
     key: "suppliers_total",
-    label: "Suppliers",
+    label: "Suppliers & contractors",
     hint: () => "In your directory",
     tone: "neutral",
     action: { label: "Manage suppliers", to: "/suppliers" },
@@ -38,8 +43,7 @@ const CARD_DEFINITIONS = [
   {
     key: "quotes_total",
     label: "Quotes received",
-    hint: (summary) =>
-      `${formatNumber(summary.quotes_complete)} complete`,
+    hint: (summary) => `${formatNumber(summary.quotes_complete)} complete`,
     tone: "success",
     action: { label: "Compare quotes", to: "/rfqs" },
   },
@@ -51,12 +55,12 @@ const CARD_DEFINITIONS = [
         summary.invitations_total === 1 ? "" : "s"
       } sent`,
     tone: "neutral",
-    action: { label: "Chase suppliers", to: "/rfqs" },
+    action: { label: "Chase contractors", to: "/rfqs" },
   },
   {
     key: "invitations_incomplete",
     label: "Incomplete quotes",
-    hint: () => "Missing required fields",
+    hint: () => "Missing details the RFQ required",
     tone: "danger",
     action: { label: "Follow up", to: "/rfqs" },
   },

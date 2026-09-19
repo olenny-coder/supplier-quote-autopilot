@@ -7,11 +7,18 @@ import { formatDate, formatDateTime } from "@/lib/format";
  * leads with the buyer's company name (not our product name): the thing the
  * supplier recognises is who is asking for the price. The RFQ summary sits
  * directly underneath so nothing has to be scrolled to before typing begins.
+ *
+ * The two summary tiles are chosen by procurement type. A plumber being shown
+ * "Quantity 1 per job" and "Incoterms —" would learn nothing and would reasonably
+ * wonder whether they had opened the right form, so a services RFQ is described in
+ * services terms: the rate basis it is quoted against and the trade it belongs to.
+ * The buyer's own wording (`category`) is used as-is.
  */
 export default function BrandedHeader({ preview }) {
   const company = preview?.buyer_company || "the buyer";
   const initial = String(company).trim().charAt(0).toUpperCase() || "B";
   const deadline = preview?.deadline ? formatDateTime(preview.deadline) : "";
+  const isService = preview?.procurement_type !== "goods";
 
   return (
     <header className="border-b border-border-default bg-surface">
@@ -58,12 +65,14 @@ export default function BrandedHeader({ preview }) {
             </div>
             <div className="min-w-0">
               <dt className="text-xs uppercase tracking-wide text-subtle">
-                Quantity
+                {isService ? "Rate basis" : "Quantity"}
               </dt>
               <dd className="truncate font-semibold text-content">
-                {preview?.quantity != null
-                  ? `${preview.quantity} ${preview.unit || ""}`.trim()
-                  : "—"}
+                {isService
+                  ? preview?.unit || "—"
+                  : preview?.quantity != null
+                    ? `${preview.quantity} ${preview.unit || ""}`.trim()
+                    : "—"}
               </dd>
             </div>
             <div className="min-w-0">
@@ -78,10 +87,12 @@ export default function BrandedHeader({ preview }) {
             </div>
             <div className="min-w-0">
               <dt className="text-xs uppercase tracking-wide text-subtle">
-                Incoterms
+                {isService ? "Category" : "Incoterms"}
               </dt>
               <dd className="truncate font-semibold text-content">
-                {preview?.incoterms || "—"}
+                {isService
+                  ? preview?.category || "—"
+                  : preview?.incoterms || "—"}
               </dd>
             </div>
           </dl>

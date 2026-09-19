@@ -61,6 +61,11 @@ function ApprovalPanel({ rfqId, comparison, approvals = [], onApproved }) {
     ? toNumber(selected.unit_price_original) !== null && toNumber(selected.unit_price_original) > 0
     : true;
 
+  // Missing licences do not gate the API (only an incomplete quote does), but the
+  // buyer has to see what they are overriding *next to the note they are typing*,
+  // not three screens up in the comparison table.
+  const selectedMissingAccreditations = selected?.missing_accreditations || [];
+
   const overrideRequired =
     decision === "approved" && selectedMissing.length > 0 && selectedHasPrice;
 
@@ -238,6 +243,35 @@ function ApprovalPanel({ rfqId, comparison, approvals = [], onApproved }) {
                   ))}
                 </div>
               )}
+
+              {selectedMissingAccreditations.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {selectedMissingAccreditations.map((accreditation) => (
+                    <span
+                      key={accreditation}
+                      className="rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-medium text-danger-soft-fg"
+                    >
+                      ✕ {accreditation}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedMissingAccreditations.length > 0 && (
+            <div className="rounded-xl border border-danger-soft-fg/25 bg-danger-soft px-4 py-3">
+              <p className="text-sm font-semibold text-danger-soft-fg">
+                Missing a required accreditation
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-danger-soft-fg">
+                This RFQ requires{" "}
+                {selectedMissingAccreditations.join(", ")}, and this quote does not
+                show {selectedMissingAccreditations.length === 1 ? "it" : "them"}.
+                The compliance score is capped for that reason, and the works may
+                not lawfully proceed without it — your note is what records why the
+                award went ahead anyway.
+              </p>
             </div>
           )}
 

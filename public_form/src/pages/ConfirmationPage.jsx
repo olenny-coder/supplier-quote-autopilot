@@ -111,6 +111,29 @@ export default function ConfirmationPage({
   const leadTimeDays =
     typeof result?.lead_time_days === "number" ? result.lead_time_days : null;
 
+  // Every number around this form arrives as a string, so money is assembled
+  // rather than formatted on the assumption of a numeric type.
+  const currency = String(payload?.currency ?? "").trim();
+  const accreditations = Array.isArray(payload?.compliance_accreditations)
+    ? payload.compliance_accreditations
+    : [];
+  const withCurrency = (value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    return [text, currency].filter(Boolean).join(" ");
+  };
+  const rateValue = payload?.unit_price
+    ? [String(payload.unit_price).trim(), currency].filter(Boolean).join(" ")
+    : "";
+  const responseValue = payload?.response_time_hours
+    ? `within ${String(payload.response_time_hours).trim()} hours`
+    : "";
+  const mobilisationValue = payload?.lead_time
+    ? leadTimeDays
+      ? `${payload.lead_time} (about ${leadTimeDays} days)`
+      : payload.lead_time
+    : "";
+
   return (
     <div className="min-h-screen">
       <BrandedHeader preview={preview} />
@@ -206,11 +229,18 @@ export default function ConfirmationPage({
               The buyer received your quote, but these details were left blank so
               it cannot be compared yet:
             </p>
-            <ul className="mt-2 list-disc space-y-0.5 pl-5">
-              {missingLabels.map((label) => (
-                <li key={label}>{label}</li>
-              ))}
-            </ul>
+            {missingLabels.length > 0 ? (
+              <ul className="mt-2 list-disc space-y-0.5 pl-5">
+                {missingLabels.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2">
+                Open the quote again to see which questions the buyer still needs
+                answered.
+              </p>
+            )}
             <p className="mt-2">
               Send them using the same link (tap &ldquo;Submit a revised
               quote&rdquo; below), or simply reply to the buyer&rsquo;s email.
@@ -236,45 +266,66 @@ export default function ConfirmationPage({
             What you sent
           </h2>
           <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            {/* What was quoted for, in the buyer's own words. A contractor with
+                three of these links open needs to know which job this receipt
+                belongs to without scrolling back up the page. */}
+            <SummaryRow label="Category" value={preview?.category} />
+            <SummaryRow label="Site" value={preview?.site_name} />
             <SummaryRow
-              label="Unit price"
+              label={preview?.procurement_type === "goods" ? "Unit price" : "Rate"}
+              value={rateValue}
+            />
+            <SummaryRow label="Rate basis" value={payload?.unit} />
+            <SummaryRow label="Response time" value={responseValue} />
+            <SummaryRow label="Mobilisation time" value={mobilisationValue} />
+            <SummaryRow
+              label="Callout / attendance"
+              value={withCurrency(payload?.callout_charge)}
+            />
+            <SummaryRow
+              label="Labour rate / hour"
+              value={withCurrency(payload?.labour_rate)}
+            />
+            <SummaryRow
+              label="Materials markup"
               value={
-                payload?.unit_price
-                  ? `${payload.unit_price} ${payload.currency || ""} per ${payload.unit || "unit"}`.trim()
+                payload?.materials_markup_pct
+                  ? `${String(payload.materials_markup_pct).trim()}%`
                   : ""
               }
             />
             <SummaryRow
-              label="Lead time"
-              value={
-                payload?.lead_time
-                  ? leadTimeDays
-                    ? `${payload.lead_time} (about ${leadTimeDays} days)`
-                    : payload.lead_time
-                  : ""
-              }
+              label="Accreditations"
+              value={accreditations.join(", ")}
             />
-            <SummaryRow label="Currency" value={payload?.currency} />
             <SummaryRow
-              label="Minimum order quantity"
-              value={payload?.moq}
+              label={String(payload?.currency || "").toUpperCase() === "SGD" ? "GST rate" : "Tax rate"}
+              value={
+                payload?.gst_rate ? `${String(payload.gst_rate).trim()}%` : ""
+              }
             />
             <SummaryRow label="Payment terms" value={payload?.payment_terms} />
-            <SummaryRow label="Incoterms" value={payload?.incoterms} />
             <SummaryRow
-              label="Quote valid until"
+              label="Rates valid until"
               value={
                 payload?.validity_date ? formatDate(payload.validity_date) : ""
               }
             />
-            <SummaryRow
-              label="Warranty"
-              value={
-                payload?.warranty_months
-                  ? `${payload.warranty_months} months`
-                  : ""
-              }
-            />
+            {/* Goods-only rows are shown only when something was actually
+                quoted for them, so a maintenance quote is not padded out with
+                "Not provided" lines that were never questions. */}
+            {payload?.moq ? (
+              <SummaryRow label="Minimum order quantity" value={payload.moq} />
+            ) : null}
+            {payload?.incoterms ? (
+              <SummaryRow label="Incoterms" value={payload.incoterms} />
+            ) : null}
+            {payload?.warranty_months ? (
+              <SummaryRow
+                label="Defect liability"
+                value={`${payload.warranty_months} months`}
+              />
+            ) : null}
             <SummaryRow
               label="Attachments"
               value={

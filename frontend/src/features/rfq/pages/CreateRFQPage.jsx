@@ -78,8 +78,10 @@ function CreateRFQPage() {
         </h1>
 
         <p className="mt-2 text-muted">
-          Describe what you need, set the deadline, and add the suppliers you want
-          quotes from — each one gets their own private form link.
+          Describe the works or the goods, set what a complete quote has to
+          contain, and add the suppliers you want rates from — each one gets their
+          own private form link. Maintenance and minor works are the default;
+          switch to goods for a supply order.
         </p>
       </div>
 

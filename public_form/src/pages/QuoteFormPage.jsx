@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import AccreditationField from "@/components/AccreditationField";
 import BrandedHeader from "@/components/BrandedHeader";
 import Captcha from "@/components/Captcha";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { TextAreaField, TextField } from "@/components/Field";
+import { SelectField, TextAreaField, TextField } from "@/components/Field";
 import FileUpload from "@/components/FileUpload";
+import FormSection from "@/components/FormSection";
 import Honeypot from "@/components/Honeypot";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Notice from "@/components/Notice";
 import ProgressNotice from "@/components/ProgressNotice";
+import SiteScopeCard from "@/components/SiteScopeCard";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import ErrorPage from "@/pages/ErrorPage";
 import {
@@ -22,37 +25,71 @@ import {
 } from "@/lib/api";
 import { isCaptchaEnabled } from "@/lib/captcha";
 import {
+  COMMON_ACCREDITATIONS,
   CURRENCY_CODES,
   FIELD_LABELS,
   INCOTERMS,
+  fieldKeyForRequiredKey,
+  formatDecimalInput,
+  hasAnswer,
   isValidEmail,
   isValidIsoDate,
+  numberOrNull,
+  rateBasesFor,
+  requiredKeyForFieldKey,
+  withCurrentOption,
 } from "@/lib/format";
 
 /**
- * Every text field the API accepts, in the order suppliers expect to fill them.
- * A blank string is a legal value: the API stores the quote and flags it
- * "incomplete", which is why blanks are never a hard error here.
+ * Every value the API accepts, in the order a contractor thinks about them.
+ *
+ * A blank is a legal value everywhere: the API stores the quote and flags it
+ * "incomplete", which is why blanks are never a hard error here. Multi-selects use
+ * an empty array as their blank, matching the contract.
  */
 const BLANK_FORM = {
+  // who is quoting
   supplier_name: "",
   contact_name: "",
   contact_email: "",
-  currency: "",
+  // your rate
   unit_price: "",
+  currency: "",
   unit: "",
+  // speed
+  response_time_hours: "",
   lead_time: "",
-  moq: "",
+  // commercial terms
+  callout_charge: "",
+  labour_rate: "",
+  materials_markup_pct: "",
   payment_terms: "",
-  incoterms: "",
   validity_date: "",
+  // compliance and tax
+  compliance_accreditations: [],
+  gst_rate: "",
+  // goods-only, hidden for a services RFQ and submitted as blanks
+  moq: "",
+  incoterms: "",
   warranty_months: "",
   shipping_cost: "",
   duties: "",
   taxes: "",
   discount: "",
+  // notes
   notes: "",
 };
+
+/** The goods-only group, hidden entirely for a services RFQ. */
+const GOODS_ONLY_KEYS = [
+  "moq",
+  "incoterms",
+  "warranty_months",
+  "shipping_cost",
+  "duties",
+  "taxes",
+  "discount",
+];
 
 const DEFAULT_MAX_UPLOAD_MB = 10;
 
@@ -67,8 +104,19 @@ function nextRowId() {
  * prefilled — an empty string from the server stays empty rather than being
  * invented from product defaults, so the supplier is never shown a price or a
  * currency the buyer did not ask about.
+ *
+ * The two exceptions are both explicit buyer instructions rather than product
+ * defaults: the RFQ's own currency (SGD for Singapore work) and its GST rate.
  */
 function prefillFromPreview(preview) {
+  const requiredAccreditations = (
+    Array.isArray(preview?.required_accreditations)
+      ? preview.required_accreditations
+      : []
+  )
+    .map((entry) => String(entry ?? "").trim())
+    .filter(Boolean);
+
   return {
     ...BLANK_FORM,
     supplier_name: preview?.supplier_name ?? "",
@@ -77,6 +125,12 @@ function prefillFromPreview(preview) {
     currency: preview?.currency ?? "",
     unit: preview?.unit ?? "",
     incoterms: preview?.incoterms ?? "",
+    // The rate arrives as a string ("9.00"); it is parsed before it is shown.
+    gst_rate: formatDecimalInput(preview?.gst_rate),
+    // Pre-ticking what the buyer requires is the whole point of the field: the
+    // contractor sees exactly which licences are being asked for and only has to
+    // untick what they do not hold.
+    compliance_accreditations: [...requiredAccreditations],
   };
 }
 
@@ -150,11 +204,38 @@ export default function QuoteFormPage() {
 
   /* ------------------------------------------------------------ derived config */
 
+  /**
+   * The buyer's contract, as sent. `required_fields` holds the buyer's own field
+   * keys and `required_field_labels` is the same list in the same order, phrased
+   * for a supplier. Both are used as the server sends them: labels are never
+   * composed here, so adding a field stays a backend-only change.
+   */
   const requiredKeys = useMemo(
     () => (Array.isArray(preview?.required_fields) ? preview.required_fields : []),
     [preview]
   );
   const requiredSet = useMemo(() => new Set(requiredKeys), [requiredKeys]);
+  const requiredLabels = useMemo(
+    () =>
+      Array.isArray(preview?.required_field_labels)
+        ? preview.required_field_labels
+        : [],
+    [preview]
+  );
+
+  const procurementType = preview?.procurement_type || "";
+  // Anything that is not explicitly goods is treated as services: that is the
+  // product this form exists for, and the services layout is the safe default for
+  // a link whose type we somehow do not know.
+  const isService = procurementType !== "goods";
+
+  const requiredAccreditations = useMemo(
+    () =>
+      Array.isArray(preview?.required_accreditations)
+        ? preview.required_accreditations
+        : [],
+    [preview]
+  );
 
   const maxUploadMb =
     Number(preview?.max_upload_mb) ||
@@ -193,6 +274,9 @@ export default function QuoteFormPage() {
   }, [preview, publicConfig]);
 
   const captchaToken = captchaState.token;
+  // Declared here, above `fieldProps`, so the controls can be disabled while a
+  // submission is in flight without relying on declaration order inside render.
+  const submitting = submitState.status === "submitting";
 
   /* ------------------------------------------------------------------ fields */
 
@@ -208,9 +292,18 @@ export default function QuoteFormPage() {
     });
   }
 
-  function hintFor(key, base) {
-    const blank = String(form[key] ?? "").trim() === "";
-    if (warnedKeys.includes(key) && blank) {
+  /** The buyer's requirement, phrased the way a supplier reads it. */
+  function labelForRequiredKey(key) {
+    const index = requiredKeys.indexOf(key);
+    const fromServer = index >= 0 ? requiredLabels[index] : "";
+    // The server's labels are authoritative. The local table is only a fallback
+    // for a response that carries the keys but not the labels yet.
+    return String(fromServer || FIELD_LABELS[key] || key.replace(/_/g, " "));
+  }
+
+  function hintFor(fieldKey, base) {
+    const requiredKey = requiredKeyForFieldKey(fieldKey);
+    if (warnedKeys.includes(requiredKey) && !hasAnswer(form[fieldKey])) {
       return base
         ? `${base} Still blank — you can send it anyway and the buyer will follow up by email.`
         : "Still blank — you can send it anyway and the buyer will follow up by email.";
@@ -224,11 +317,79 @@ export default function QuoteFormPage() {
       name: key,
       value: form[key],
       onValueChange: handleValueChange,
-      required: requiredSet.has(key),
+      // Required markers are driven by the buyer's contract and rendered as a
+      // visual marker plus `aria-required` — never the HTML `required` attribute,
+      // which would make the browser block the partial submissions the API
+      // deliberately accepts. See components/Field.jsx.
+      required: requiredSet.has(requiredKeyForFieldKey(key)),
       error: errors[key],
+      disabled: submitting,
       ...extra,
     };
   }
+
+  /* ------------------------------------------------------------ services copy */
+
+  const currencyCode = String(form.currency || "").trim().toUpperCase();
+  // The live value, falling back to the RFQ's own basis: when a contractor
+  // switches from "per hour" to "lump sum" the label must follow what they are
+  // actually quoting, not what the buyer originally suggested.
+  const rateBasis =
+    String(form.unit || "").trim() || String(preview?.unit || "").trim();
+
+  const rateLabel = isService
+    ? rateBasis
+      ? `Rate (${rateBasis})`
+      : "Rate"
+    : "Unit price";
+  const rateHint = isService
+    ? `What you would charge ${rateBasis || "for this job"}. Note in the notes whether materials are included.`
+    : `Price for one ${rateBasis || "unit"}, before shipping.`;
+
+  const rateBasisOptions = useMemo(() => {
+    // The picker's vocabulary is the server's (`rate_bases`), so adding a rate
+    // basis stays a backend-only change. The local taxonomy is only the fallback
+    // for a response that predates that field.
+    const fromServer =
+      Array.isArray(preview?.rate_bases) && preview.rate_bases.length
+        ? preview.rate_bases
+        : rateBasesFor(procurementType);
+    return withCurrentOption(fromServer, rateBasis);
+  }, [preview, procurementType, rateBasis]);
+
+  const requiredResponseHours = numberOrNull(preview?.required_response_hours);
+  const enteredResponseHours = numberOrNull(form.response_time_hours);
+  const responseIsSlower =
+    requiredResponseHours !== null &&
+    enteredResponseHours !== null &&
+    enteredResponseHours > requiredResponseHours;
+  const responseHint = [
+    "e.g. 4 for within 4 hours, 24 for next business day.",
+    requiredResponseHours !== null
+      ? `The buyer asks for someone on site within ${requiredResponseHours} hour${requiredResponseHours === 1 ? "" : "s"}.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  // Warn, never block: a slower attendance may be the honest answer, and the buyer
+  // would rather have the quote with the real number on it than no quote.
+  const responseWarning = responseIsSlower
+    ? `That is slower than the ${requiredResponseHours} hour${requiredResponseHours === 1 ? "" : "s"} the buyer asked for. Send it if that is the best you can do — the buyer will see the difference.`
+    : undefined;
+
+  const gstLabel = currencyCode === "SGD" ? "GST rate (%)" : "Tax rate (%)";
+  // Why the buyer asks for a rate at all, in the buyer's own words when the API
+  // sends them (`tax_note`), so the form never invents tax policy.
+  const gstHint = [
+    "Used when you do not give a separate tax amount.",
+    String(preview?.tax_note || "").trim(),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const goodsGroupHoldsRequiredField = GOODS_ONLY_KEYS.some((key) =>
+    requiredSet.has(key)
+  );
 
   /* -------------------------------------------------------------- attachments */
 
@@ -361,9 +522,16 @@ export default function QuoteFormPage() {
   function buildPayload() {
     const payload = {};
     for (const key of Object.keys(BLANK_FORM)) {
-      // Blanks are sent as "" — the server tolerates them for optional fields
-      // and records the quote as "incomplete", which is a legitimate outcome.
-      payload[key] = String(form[key] ?? "").trim();
+      const value = form[key];
+      if (Array.isArray(value)) {
+        // A multi-select answers with a list, so its blank is `[]` — the same
+        // "nothing here" the numeric fields express as "".
+        payload[key] = value
+          .map((entry) => String(entry ?? "").trim())
+          .filter(Boolean);
+      } else {
+        payload[key] = String(value ?? "").trim();
+      }
     }
 
     payload[honeypotField] = ""; // Honeypot: always present, always empty.
@@ -431,10 +599,13 @@ export default function QuoteFormPage() {
     const found = shapeErrors();
     setErrors(found);
 
-    const missingKeys = requiredKeys.filter(
-      (key) => String(form[key] ?? "").trim() === ""
-    );
-    setWarnedKeys(missingKeys);
+    // The buyer's contract names its own fields ("compliance"), the form posts
+    // wire fields ("compliance_accreditations"); lib/format reconciles the two.
+    const missing = requiredKeys
+      .filter((key) => !hasAnswer(form[fieldKeyForRequiredKey(key)]))
+      .map((key) => ({ key, label: labelForRequiredKey(key) }));
+
+    setWarnedKeys(missing.map((entry) => entry.key));
 
     if (Object.keys(found).length > 0) {
       setSubmitState({
@@ -458,10 +629,10 @@ export default function QuoteFormPage() {
 
     const failedRows = rows.filter((row) => row.status === "error" && row.file);
 
-    if (missingKeys.length > 0 || failedRows.length > 0) {
+    if (missing.length > 0 || failedRows.length > 0) {
       // Warn once, then let the supplier decide. This is the "partial quote"
       // path the API is designed around.
-      setPendingIssues({ missingKeys, failedRows });
+      setPendingIssues({ missing, failedRows });
       return;
     }
 
@@ -542,7 +713,6 @@ export default function QuoteFormPage() {
   const submitLabel = preview?.already_submitted
     ? "Update my quote"
     : "Submit my quote";
-  const submitting = submitState.status === "submitting";
   const showCaptchaNudge = isCaptchaEnabled(captcha) && !captchaToken;
 
   return (
@@ -575,300 +745,402 @@ export default function QuoteFormPage() {
               <option key={code} value={code} />
             ))}
           </datalist>
-          <datalist id="incoterm-options">
-            {INCOTERMS.map((term) => (
-              <option key={term} value={term} />
-            ))}
-          </datalist>
+          {!isService ? (
+            <datalist id="incoterm-options">
+              {INCOTERMS.map((term) => (
+                <option key={term} value={term} />
+              ))}
+            </datalist>
+          ) : null}
 
-          <section
-            aria-labelledby="details-heading"
-            className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
+          <FormSection
+            id="who"
+            title="Who is quoting"
+            description="The buyer sees this on your quote, so use the name they know you by."
           >
-            <h2 id="details-heading" className="text-base font-bold text-content">
-              Who is quoting
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              The buyer sees this on your quote, so use the name they know you by.
-            </p>
+            <TextField
+              label="Company name"
+              placeholder="e.g. Sunrise Facilities Pte Ltd"
+              autoComplete="organization"
+              {...fieldProps("supplier_name", {
+                hint: hintFor("supplier_name"),
+              })}
+            />
+            <TextField
+              label="Contact name"
+              placeholder="e.g. Suresh Kumar"
+              autoComplete="name"
+              {...fieldProps("contact_name", { hint: hintFor("contact_name") })}
+            />
+            <TextField
+              label="Contact email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="e.g. suresh@sunrise.sg"
+              {...fieldProps("contact_email", {
+                hint: hintFor(
+                  "contact_email",
+                  "The buyer sends any follow-up questions here."
+                ),
+              })}
+            />
+          </FormSection>
 
-            <div className="mt-4 space-y-4">
-              <TextField
-                label="Company name"
-                placeholder="e.g. Nova Metals Ltd"
-                autoComplete="organization"
-                {...fieldProps("supplier_name", {
-                  hint: hintFor("supplier_name"),
-                })}
-              />
-              <TextField
-                label="Contact name"
-                placeholder="e.g. Ana Ruiz"
-                autoComplete="name"
-                {...fieldProps("contact_name", { hint: hintFor("contact_name") })}
-              />
-              <TextField
-                label="Contact email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                placeholder="e.g. ana@novametals.com"
-                {...fieldProps("contact_email", {
-                  hint: hintFor(
-                    "contact_email",
-                    "The buyer sends any follow-up questions here."
-                  ),
-                })}
-              />
-            </div>
-          </section>
-
-          <section
-            aria-labelledby="price-heading"
-            className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
+          <FormSection
+            id="rate"
+            title="Your rate"
+            description={
+              isService
+                ? "The rate you would charge, and what it is charged against. The buyer compares quotes on exactly this."
+                : "Give the price for one unit. The buyer multiplies it by the quantity themselves."
+            }
           >
-            <h2 id="price-heading" className="text-base font-bold text-content">
-              Your price
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Give the price for one unit. The buyer multiplies it by the
-              quantity themselves.
-            </p>
+            <TextField
+              label={rateLabel}
+              inputMode="decimal"
+              placeholder="e.g. 80.00"
+              autoComplete="off"
+              prefix={currencyCode || undefined}
+              {...fieldProps("unit_price", {
+                hint: hintFor("unit_price", rateHint),
+              })}
+            />
+            <TextField
+              label="Currency"
+              list="currency-options"
+              placeholder={String(preview?.currency || "").trim() || undefined}
+              autoComplete="off"
+              hint={hintFor(
+                "currency",
+                "Three-letter code. This request is priced in " +
+                  `${String(preview?.currency || "").trim() || "the buyer's currency"}.`
+              )}
+              maxLength={12}
+              {...fieldProps("currency")}
+            />
+            <SelectField
+              label={isService ? "Rate basis" : "Unit of measure"}
+              options={rateBasisOptions}
+              placeholder={
+                isService ? "Choose what the rate is for" : "Choose a unit"
+              }
+              {...fieldProps("unit", {
+                hint: hintFor(
+                  "unit",
+                  isService
+                    ? "What the rate is charged against — a day's work and an hourly rate are not comparable."
+                    : "How one unit is counted."
+                ),
+              })}
+            />
+          </FormSection>
 
-            <div className="mt-4 space-y-4">
-              <TextField
-                label="Currency"
-                list="currency-options"
-                placeholder="USD"
-                autoComplete="off"
-                hint={hintFor(
-                  "currency",
-                  "Three-letter code, such as USD, EUR or VND."
-                )}
-                maxLength={12}
-                {...fieldProps("currency")}
-              />
-              <TextField
-                label="Unit price"
-                inputMode="decimal"
-                placeholder="e.g. 2.50"
-                autoComplete="off"
-                prefix={String(form.currency || "").trim().toUpperCase() || undefined}
-                {...fieldProps("unit_price", {
-                  hint: hintFor(
-                    "unit_price",
-                    `Price for one ${String(form.unit || "").trim() || "unit"}, before shipping.`
-                  ),
-                })}
-              />
-              <TextField
-                label="Unit of measure"
-                placeholder="e.g. pcs, kg, m"
-                autoComplete="off"
-                maxLength={24}
-                {...fieldProps("unit", { hint: hintFor("unit") })}
-              />
-              <TextField
-                label="Lead time"
-                placeholder="e.g. 3 weeks or 15 business days"
-                autoComplete="off"
-                {...fieldProps("lead_time", {
-                  hint: hintFor(
-                    "lead_time",
-                    "How long after the order until the goods ship."
-                  ),
-                })}
-              />
-            </div>
-          </section>
-
-          <section
-            aria-labelledby="terms-heading"
-            className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
+          <FormSection
+            id="speed"
+            title="Speed"
+            description={
+              isService
+                ? "Response time is the single biggest difference between two maintenance quotes."
+                : "When the buyer would have the goods."
+            }
           >
-            <h2 id="terms-heading" className="text-base font-bold text-content">
-              Order terms
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Buyers compare quotes on these details, so fill in as many as you
-              can.
-            </p>
-
-            <div className="mt-4 space-y-4">
+            {isService ? (
               <TextField
-                label="Minimum order quantity"
+                label="How fast can you attend?"
                 inputMode="numeric"
-                placeholder="e.g. 500"
-                autoComplete="off"
-                maxLength={32}
-                {...fieldProps("moq", { hint: hintFor("moq") })}
-              />
-              <TextField
-                label="Payment terms"
-                placeholder="e.g. Net 30"
-                autoComplete="off"
-                maxLength={120}
-                {...fieldProps("payment_terms", { hint: hintFor("payment_terms") })}
-              />
-              <TextField
-                label="Incoterms"
-                list="incoterm-options"
-                placeholder="e.g. FOB Valencia"
-                autoComplete="off"
-                maxLength={60}
-                {...fieldProps("incoterms", {
-                  hint: hintFor(
-                    "incoterms",
-                    "Delivery term, optionally with the named place."
-                  ),
-                })}
-              />
-              <TextField
-                label="Quote valid until"
-                type="date"
-                autoComplete="off"
-                {...fieldProps("validity_date", {
-                  hint: hintFor(
-                    "validity_date",
-                    "How long these prices hold."
-                  ),
-                })}
-              />
-              <TextField
-                label="Warranty (months)"
-                inputMode="numeric"
-                placeholder="e.g. 12"
+                placeholder="e.g. 4"
                 autoComplete="off"
                 maxLength={12}
-                {...fieldProps("warranty_months", {
-                  hint: hintFor("warranty_months"),
+                {...fieldProps("response_time_hours", {
+                  hint: hintFor("response_time", responseHint),
+                  warning: responseWarning,
                 })}
               />
-            </div>
-          </section>
+            ) : null}
+            <TextField
+              label={
+                isService
+                  ? "Mobilisation time (time until you can start)"
+                  : "Lead time"
+              }
+              placeholder={
+                isService
+                  ? "e.g. next working day, or 2 weeks for a full crew"
+                  : "e.g. 3 weeks or 15 business days"
+              }
+              autoComplete="off"
+              {...fieldProps("lead_time", {
+                hint: hintFor(
+                  "lead_time",
+                  isService
+                    ? "From the buyer's go-ahead to your team being on site."
+                    : "How long after the order until the goods ship."
+                ),
+              })}
+            />
+          </FormSection>
+
+          <SiteScopeCard preview={preview} />
+
+          <FormSection
+            id="terms"
+            title="Commercial terms"
+            description={
+              isService
+                ? "How you charge for the work and when you expect to be paid."
+                : "Buyers compare quotes on these details, so fill in as many as you can."
+            }
+          >
+            {isService ? (
+              <>
+                <TextField
+                  label="Callout / attendance charge"
+                  inputMode="decimal"
+                  placeholder="e.g. 80.00"
+                  autoComplete="off"
+                  maxLength={40}
+                  prefix={currencyCode || undefined}
+                  {...fieldProps("callout_charge", {
+                    hint: hintFor(
+                      "callout_charge",
+                      "What you charge to attend site, even if no work is done. Leave blank if it is already inside your rate."
+                    ),
+                  })}
+                />
+                <TextField
+                  label="Labour rate per hour"
+                  inputMode="decimal"
+                  placeholder="e.g. 65.00"
+                  autoComplete="off"
+                  maxLength={40}
+                  prefix={currencyCode || undefined}
+                  {...fieldProps("labour_rate", {
+                    hint: hintFor(
+                      "labour_rate",
+                      "The hourly rate for the person who attends."
+                    ),
+                  })}
+                />
+                <TextField
+                  label="Materials markup (%)"
+                  inputMode="decimal"
+                  placeholder="e.g. 15"
+                  autoComplete="off"
+                  maxLength={12}
+                  {...fieldProps("materials_markup_pct", {
+                    hint: hintFor(
+                      "materials_markup",
+                      "What you add on top of trade prices for parts and materials."
+                    ),
+                  })}
+                />
+              </>
+            ) : null}
+            <TextField
+              label="Payment terms"
+              placeholder={
+                isService ? "e.g. 30 days from invoice" : "e.g. Net 30"
+              }
+              autoComplete="off"
+              maxLength={120}
+              {...fieldProps("payment_terms", {
+                hint: hintFor(
+                  "payment_terms",
+                  isService
+                    ? "When you expect to be paid after the work is done."
+                    : undefined
+                ),
+              })}
+            />
+            <TextField
+              label="Rates valid until"
+              type="date"
+              autoComplete="off"
+              {...fieldProps("validity_date", {
+                hint: hintFor(
+                  "validity_date",
+                  "How long you can hold these rates."
+                ),
+              })}
+            />
+          </FormSection>
+
+          <FormSection
+            id="compliance"
+            title="Compliance"
+            description="Licences and certifications the buyer checks before awarding maintenance work."
+          >
+            <AccreditationField
+              id="q-compliance_accreditations"
+              label="Accreditations and licences you hold"
+              value={form.compliance_accreditations}
+              onChange={(next) =>
+                handleValueChange("compliance_accreditations", next)
+              }
+              suggestions={COMMON_ACCREDITATIONS}
+              requiredAccreditations={requiredAccreditations}
+              required={requiredSet.has("compliance")}
+              disabled={submitting}
+            />
+          </FormSection>
+
+          <FormSection
+            id="tax"
+            title="Tax"
+            description="Only one of a rate and a separate tax amount is needed — the buyer adds this on top when you give a rate."
+          >
+            <TextField
+              label={gstLabel}
+              inputMode="decimal"
+              placeholder="e.g. 9"
+              autoComplete="off"
+              maxLength={12}
+              {...fieldProps("gst_rate", {
+                hint: hintFor("gst_rate", gstHint),
+              })}
+            />
+          </FormSection>
 
           {/*
-            Native <details> on purpose: it is keyboard- and screen-reader-
-            accessible with no JavaScript, and leaving it uncontrolled means the
-            supplier's open/closed choice survives re-renders.
+            Goods-only group: MOQ, Incoterms, freight, duties, taxes and discount
+            mean nothing on a plumbing job, so the whole group is hidden for a
+            services RFQ rather than shown empty. Mobilisation time deliberately
+            lives above with the response time, because it is the one time-related
+            question a contractor is always asked. Native <details> on purpose: it
+            is keyboard- and screen-reader-accessible with no JavaScript, and it is
+            opened by default when the buyer made one of these fields required, so
+            a required field is never hidden behind a collapsed summary.
           */}
-          <details className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5">
-            <summary className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-base font-bold text-content">
-              Additional costs
-              <span className="text-xs font-medium text-muted">
-                optional
-              </span>
-            </summary>
-            <p className="mt-2 text-sm text-muted">
-              Only fill these in if they are not already included in your unit
-              price — leaving them blank means the unit price is the total.
-            </p>
-
-            <div className="mt-4 space-y-4">
-              <TextField
-                label="Shipping cost"
-                inputMode="decimal"
-                placeholder="e.g. 450"
-                autoComplete="off"
-                maxLength={40}
-                {...fieldProps("shipping_cost")}
-              />
-              <TextField
-                label="Duties"
-                inputMode="decimal"
-                placeholder="e.g. 120"
-                autoComplete="off"
-                maxLength={40}
-                {...fieldProps("duties")}
-              />
-              <TextField
-                label="Taxes"
-                inputMode="decimal"
-                placeholder="e.g. VAT 20%"
-                autoComplete="off"
-                maxLength={40}
-                {...fieldProps("taxes")}
-              />
-              <TextField
-                label="Discount"
-                inputMode="decimal"
-                placeholder="e.g. 2% for orders over 5000"
-                autoComplete="off"
-                maxLength={60}
-                {...fieldProps("discount")}
-              />
-            </div>
-          </details>
-
-          <section
-            aria-labelledby="notes-heading"
-            className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
-          >
-            <h2 id="notes-heading" className="text-base font-bold text-content">
-              Notes for the buyer
-            </h2>
-            <div className="mt-4">
-              <TextAreaField
-                label="Anything else they should know"
-                placeholder="Alternatives, tolerances, packing, certifications, payment notes…"
-                rows={5}
-                maxLength={4000}
-                {...fieldProps("notes", { hint: hintFor("notes") })}
-              />
-            </div>
-          </section>
-
-          <section
-            aria-labelledby="files-heading"
-            className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
-          >
-            <h2 id="files-heading" className="text-base font-bold text-content">
-              Attachments
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Datasheets, drawings or certificates help the buyer compare fairly.
-              You can also send your quote without any files.
-            </p>
-            <div className="mt-4">
-              <FileUpload
-                rows={rows}
-                onFilesPicked={handleFilesPicked}
-                onRemove={handleRemoveRow}
-                onRetry={handleRetryRow}
-                maxUploadMb={maxUploadMb}
-                allowedExtensions={allowedExtensions}
-                disabled={submitting}
-              />
-            </div>
-          </section>
-
-          {isCaptchaEnabled(captcha) ? (
-            <section
-              aria-labelledby="captcha-heading"
+          {!isService ? (
+            <details
+              open={goodsGroupHoldsRequiredField}
               className="rounded-2xl border border-border-default bg-surface p-4 shadow-card sm:p-5"
             >
-              <h2
-                id="captcha-heading"
-                className="text-base font-bold text-content"
-              >
-                Quick verification
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                This check keeps automated spam out of the buyer&rsquo;s inbox.
+              <summary className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-base font-bold text-content">
+                Additional details
+                <span className="text-xs font-medium text-muted">optional</span>
+              </summary>
+              <p className="mt-2 text-sm text-muted">
+                Only fill these in if they are not already included in your unit
+                price — leaving them blank means the unit price is the total.
               </p>
-              <div className="mt-4">
-                <Captcha
-                  captcha={captcha}
-                  resetKey={captchaState.resetKey}
-                  onToken={(value) =>
-                    setCaptchaState((previous) => ({
-                      ...previous,
-                      token: value || null,
-                    }))
-                  }
+
+              <div className="mt-4 space-y-4">
+                <TextField
+                  label="Minimum order quantity"
+                  inputMode="numeric"
+                  placeholder="e.g. 500"
+                  autoComplete="off"
+                  maxLength={32}
+                  {...fieldProps("moq", { hint: hintFor("moq") })}
+                />
+                <TextField
+                  label="Incoterms"
+                  list="incoterm-options"
+                  placeholder="e.g. FOB Valencia"
+                  autoComplete="off"
+                  maxLength={60}
+                  {...fieldProps("incoterms", {
+                    hint: hintFor(
+                      "incoterms",
+                      "Delivery term, optionally with the named place."
+                    ),
+                  })}
+                />
+                <TextField
+                  label="Warranty (months)"
+                  inputMode="numeric"
+                  placeholder="e.g. 12"
+                  autoComplete="off"
+                  maxLength={12}
+                  {...fieldProps("warranty_months", {
+                    hint: hintFor("warranty_months"),
+                  })}
+                />
+                <TextField
+                  label="Shipping cost"
+                  inputMode="decimal"
+                  placeholder="e.g. 450"
+                  autoComplete="off"
+                  maxLength={40}
+                  {...fieldProps("shipping_cost")}
+                />
+                <TextField
+                  label="Duties"
+                  inputMode="decimal"
+                  placeholder="e.g. 120"
+                  autoComplete="off"
+                  maxLength={40}
+                  {...fieldProps("duties")}
+                />
+                <TextField
+                  label="Taxes"
+                  inputMode="decimal"
+                  placeholder="e.g. VAT 20%"
+                  autoComplete="off"
+                  maxLength={40}
+                  {...fieldProps("taxes")}
+                />
+                <TextField
+                  label="Discount"
+                  inputMode="decimal"
+                  placeholder="e.g. 2% for orders over 5000"
+                  autoComplete="off"
+                  maxLength={60}
+                  {...fieldProps("discount")}
                 />
               </div>
-            </section>
+            </details>
+          ) : null}
+
+          <FormSection
+            id="notes"
+            title="Notes for the buyer"
+            description="Anything that changes what your rate covers belongs here."
+          >
+            <TextAreaField
+              label="Anything else they should know"
+              placeholder="What your rate includes and excludes, access needs, when you can start, alternatives…"
+              rows={5}
+              maxLength={4000}
+              {...fieldProps("notes", { hint: hintFor("notes") })}
+            />
+          </FormSection>
+
+          <FormSection
+            id="files"
+            title="Attachments"
+            description="Licences, job sheets or a photo of the site back up your quote. You can also send it without any files."
+          >
+            <FileUpload
+              rows={rows}
+              onFilesPicked={handleFilesPicked}
+              onRemove={handleRemoveRow}
+              onRetry={handleRetryRow}
+              maxUploadMb={maxUploadMb}
+              allowedExtensions={allowedExtensions}
+              disabled={submitting}
+            />
+          </FormSection>
+
+          {isCaptchaEnabled(captcha) ? (
+            <FormSection
+              id="captcha"
+              title="Quick verification"
+              description="This check keeps automated spam out of the buyer's inbox."
+            >
+              <Captcha
+                captcha={captcha}
+                resetKey={captchaState.resetKey}
+                onToken={(value) =>
+                  setCaptchaState((previous) => ({
+                    ...previous,
+                    token: value || null,
+                  }))
+                }
+              />
+            </FormSection>
           ) : null}
 
           {/* Spam honeypot: see components/Honeypot.jsx for why it is styled
@@ -938,19 +1210,17 @@ export default function QuoteFormPage() {
         onConfirm={handleConfirmPartial}
         onCancel={() => setPendingIssues(null)}
       >
-        {pendingIssues?.missingKeys?.length ? (
+        {pendingIssues?.missing?.length ? (
           <p>
             You have left{" "}
             <strong className="font-semibold text-content">
-              {pendingIssues.missingKeys.length} required field
-              {pendingIssues.missingKeys.length === 1 ? "" : "s"}
+              {pendingIssues.missing.length} required field
+              {pendingIssues.missing.length === 1 ? "" : "s"}
             </strong>{" "}
             blank
-            {pendingIssues.missingKeys.length > 0
-              ? ` (${pendingIssues.missingKeys
-                  .map((key) => FIELD_LABELS[key] || key.replace(/_/g, " "))
-                  .join(", ")})`
-              : ""}
+            {` (${pendingIssues.missing
+              .map((entry) => entry.label)
+              .join(", ")})`}
             . We will send the quote and the buyer will follow up by email.
           </p>
         ) : null}

@@ -49,6 +49,17 @@ const SORT_ACCESSORS = {
   lead_time: (q) => toNumber(q.lead_time) ?? Number.POSITIVE_INFINITY,
   moq: (q) => toNumber(q.moq) ?? Number.POSITIVE_INFINITY,
   composite_score: (q) => toNumber(q.composite_score) ?? -1,
+  // Services. A missing response time or callout sorts last, never first: an
+  // absent SLA is not a fast one.
+  response_time_hours: (q) =>
+    toNumber(q.response_time_hours) ?? Number.POSITIVE_INFINITY,
+  callout_charge: (q) => toNumber(q.callout_charge) ?? Number.POSITIVE_INFINITY,
+  labour_rate: (q) => toNumber(q.labour_rate) ?? Number.POSITIVE_INFINITY,
+  materials_markup_pct: (q) =>
+    toNumber(q.materials_markup_pct) ?? Number.POSITIVE_INFINITY,
+  gst_rate: (q) => toNumber(q.gst_rate) ?? Number.POSITIVE_INFINITY,
+  shipping_cost: (q) => toNumber(q.shipping_cost) ?? Number.POSITIVE_INFINITY,
+  duties: (q) => toNumber(q.duties) ?? Number.POSITIVE_INFINITY,
 };
 
 /**
@@ -93,7 +104,16 @@ export function useQuoteTable(quotes) {
 
     const filtered = term
       ? quotes.filter((q) =>
-          [q.supplier_name, q.payment_terms, q.incoterms, q.remarks, q.reference_number]
+          [
+            q.supplier_name,
+            q.payment_terms,
+            q.incoterms,
+            q.remarks,
+            q.reference_number,
+            // Licences are part of how a services quote is shortlisted, so
+            // "LEW" has to find the suppliers who hold it.
+            (q.compliance_accreditations || []).join(" "),
+          ]
             .filter(Boolean)
             .some((field) => String(field).toLowerCase().includes(term))
         )

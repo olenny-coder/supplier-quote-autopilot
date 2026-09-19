@@ -39,7 +39,7 @@ function RFQListPage() {
 
       if (!term) return true;
 
-      return [rfq.item_name, rfq.rfq_number, rfq.specification, rfq.category]
+      return [rfq.item_name, rfq.rfq_number, rfq.specification, rfq.category, rfq.site_name]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(term));
     });
@@ -87,8 +87,8 @@ function RFQListPage() {
           </div>
 
           <p className="mt-2 text-muted">
-            Invite suppliers, track who has responded, and compare the quotes you
-            get back.
+            Raise a request for maintenance or minor works (or goods), invite
+            suppliers, track who has responded, and compare the rates you get back.
           </p>
         </div>
 
@@ -127,7 +127,7 @@ function RFQListPage() {
               type="text"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search item, RFQ number, category…"
+              placeholder="Search scope, RFQ number, category, site…"
               aria-label="Search RFQs"
               className="w-full rounded-xl border border-border-default bg-surface py-2.5 pl-9 pr-3 text-sm text-content placeholder:text-subtle transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50"
             />
@@ -163,7 +163,7 @@ function RFQListPage() {
       ) : rfqs.length === 0 ? (
         <EmptyState
           title="No RFQs yet"
-          description="Create your first RFQ, add the suppliers you want quotes from, and each one gets a private form link."
+          description="Raise your first request, add the contractors you want rates from, and each one gets a private form link."
           action={
             <Link to="/rfqs/new" className={buttonClass("primary", "md")}>
               Create your first RFQ

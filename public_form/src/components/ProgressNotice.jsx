@@ -1,3 +1,5 @@
+import { fieldKeyForRequiredKey, hasAnswer } from "@/lib/format";
+
 /**
  * Small step indicator with a required-details completion bar.
  *
@@ -5,6 +7,11 @@
  * questions at a glance on a phone: "how much is left?" and "what happens
  * after I send?". It is intentionally *not* a blocking wizard — the API accepts
  * partial quotes, so the bar reports progress and never gates it.
+ *
+ * Required keys arrive in the buyer's vocabulary (`compliance`, `response_time`)
+ * while the values carry the form's wire field names, so the mapping and the
+ * array-aware blank check both live in `lib/format` and are shared with the page
+ * rather than duplicated here.
  */
 export default function ProgressNotice({
   currentStep = 0,
@@ -14,8 +21,8 @@ export default function ProgressNotice({
 }) {
   const steps = ["Quote details", "Confirmation"];
   const total = requiredKeys.length;
-  const filled = requiredKeys.filter(
-    (key) => String(values[key] ?? "").trim() !== ""
+  const filled = requiredKeys.filter((key) =>
+    hasAnswer(values[fieldKeyForRequiredKey(key)])
   ).length;
   const percent = total === 0 ? 100 : Math.round((filled / total) * 100);
 

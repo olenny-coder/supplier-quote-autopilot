@@ -19,8 +19,15 @@ import { createQuote, deleteQuote, importQuotes, updateQuote } from "@/features/
  * form: manual entry through the modal and bulk CSV/PDF import. Every mutation
  * refreshes the whole RFQ overview, because a new quote changes the counters,
  * the comparison and the dashboards — not just this table.
+ *
+ * The RFQ is passed down rather than just its id: the table and the manual form
+ * both need the RFQ's own vocabulary (procurement type, currency, rate basis and
+ * required accreditations) to read a services quote correctly.
  */
-function QuotesTab({ rfqId, quotes = [], onChanged }) {
+function QuotesTab({ rfq, quotes = [], onChanged }) {
+  const rfqId = rfq?.id;
+  const isGoods = rfq?.procurement_type === "goods";
+
   const [showQuoteForm, setShowQuoteForm] = useState(false);
   const [editingQuote, setEditingQuote] = useState(null);
   const [savingQuote, setSavingQuote] = useState(false);
@@ -123,7 +130,7 @@ function QuotesTab({ rfqId, quotes = [], onChanged }) {
       <Card className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-content">
-            Supplier quotes
+            {isGoods ? "Supplier quotes" : "Contractor rates"}
           </h2>
           <p className="mt-0.5 text-xs text-muted">
             {formatNumber(quotes.length)} quote
@@ -154,6 +161,8 @@ function QuotesTab({ rfqId, quotes = [], onChanged }) {
 
       <QuoteTable
         quotes={quotes}
+        procurementType={rfq?.procurement_type || ""}
+        requiredAccreditations={rfq?.required_accreditations || []}
         onEdit={(quote) => {
           setEditingQuote(quote);
           setShowQuoteForm(true);
@@ -181,6 +190,9 @@ function QuotesTab({ rfqId, quotes = [], onChanged }) {
       >
         <QuoteForm
           initialValues={editingQuote || {}}
+          procurementType={rfq?.procurement_type || ""}
+          rfqCurrency={rfq?.currency || ""}
+          rfqUnit={rfq?.unit || ""}
           onSubmit={handleSaveQuote}
           onCancel={() => {
             setShowQuoteForm(false);

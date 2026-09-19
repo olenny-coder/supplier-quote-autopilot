@@ -6,9 +6,10 @@ import { buttonClass } from "@/shared/lib/button";
 import { formatDate, formatHoursRemaining, formatNumber } from "@/shared/lib/format";
 
 /**
- * "Closing soon" — RFQs whose quote deadline falls inside the server's warning
- * window, nearest first (the API already sorts them). Overdue deadlines are
- * flagged in red, because those are the ones that need a decision today.
+ * "Closing soon" — requests whose quote deadline falls inside the server's
+ * warning window, nearest first (the API already sorts them). Overdue deadlines
+ * are flagged in red, because those are the ones that need a decision today —
+ * on a maintenance job the works still have to be scheduled after the award.
  */
 function ClosingSoonPanel({ deadlines = [] }) {
   return (
@@ -32,7 +33,7 @@ function ClosingSoonPanel({ deadlines = [] }) {
         <div className="p-5">
           <EmptyState
             title="No deadlines imminent"
-            description="Nothing is due in the next few days. Open RFQs will appear here as their deadlines approach."
+            description="Nothing is due in the next few days. Open requests will appear here as their deadlines approach."
           />
         </div>
       ) : (

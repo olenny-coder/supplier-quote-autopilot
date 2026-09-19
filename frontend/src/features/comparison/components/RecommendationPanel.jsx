@@ -57,6 +57,18 @@ function RecommendationPanel({ comparison }) {
   const hasRecommendation = Boolean(comparison.recommended_quote_id);
   const aiGenerated = Boolean(comparison.llm_model);
 
+  // The two cautions the engine now writes into `rationale` are also stated here
+  // as their own blocks, because a paragraph in the middle of five other
+  // paragraphs is exactly where a buyer stops reading. They are derived from the
+  // recommended result rather than pattern-matched out of the prose, so the panel
+  // cannot disagree with the flags the table shows.
+  const recommended = (comparison.results || []).find(
+    (result) => result.quote_id === comparison.recommended_quote_id
+  );
+
+  const highRisk = (recommended?.supplier_risk || "").toLowerCase() === "high";
+  const missingAccreditations = recommended?.missing_accreditations || [];
+
   return (
     <Card className="flex flex-col gap-5 p-5">
       <div>
@@ -82,6 +94,57 @@ function RecommendationPanel({ comparison }) {
           {aiGenerated ? ` · narrative by ${comparison.llm_model}` : ""}
         </p>
       </div>
+
+      {/* Danger: the recommended supplier cannot lawfully do the work. This is the
+          one caveat that can invalidate the award outright, so it leads. */}
+      {missingAccreditations.length > 0 && (
+        <div className="rounded-xl border border-danger-soft-fg/25 bg-danger-soft p-4">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-danger-soft-fg text-danger-soft">
+              <svg
+                className="h-3 w-3"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 7a1 1 0 100 2 1 1 0 000-2z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </span>
+
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-danger-soft-fg">
+                Missing a required accreditation
+              </h4>
+              <p className="mt-1 text-sm leading-relaxed text-danger-soft-fg">
+                {comparison.recommended_supplier} does not hold{" "}
+                {missingAccreditations.join(", ")}, which this RFQ requires. Their
+                score is capped for that reason, and the work may not lawfully
+                proceed without it — confirm the licence before awarding, or award
+                someone who holds it.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Amber: the arithmetic is fine, the judgement is the buyer's. */}
+      {highRisk && (
+        <div className="rounded-xl border border-warning-soft-fg/25 bg-warning-soft p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-warning-soft-fg">
+            Recommended supplier is rated high risk
+          </h4>
+          <p className="mt-1 text-sm leading-relaxed text-warning-soft-fg">
+            The score reflects price, response time and terms — not insurance,
+            safety record or references. Confirm those before awarding, or put more
+            weight on supplier risk and re-run if that judgement should count for
+            more.
+          </p>
+        </div>
+      )}
 
       {comparison.summary && (
         <div className="rounded-xl border border-border-default bg-surface-2/60 p-4">

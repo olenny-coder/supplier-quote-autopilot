@@ -3,15 +3,29 @@
  * consistent across features instead of being re-implemented per component.
  */
 
-export function formatPrice(value, currency = "USD") {
+/**
+ * Money, with the base currency as the default.
+ *
+ * This product is oriented around Singapore building services, so an unqualified
+ * price is SGD — `Intl` renders that as "S$". Callers that know the currency
+ * (an RFQ's `currency`, a comparison's `base_currency`) must pass it: the
+ * default exists so a missing currency degrades to the base one rather than to
+ * somebody else's dollars. An unusable code falls back to a plain string rather
+ * than throwing inside a render.
+ */
+export function formatPrice(value, currency = "SGD", fallback = "—") {
+  const parsed = toNumber(value);
+
+  if (parsed === null) return fallback;
+
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: currency || "USD",
+      currency: currency || "SGD",
       maximumFractionDigits: 2,
-    }).format(Number(value));
+    }).format(parsed);
   } catch {
-    return `${currency || ""} ${value}`;
+    return `${currency || ""} ${value}`.trim();
   }
 }
 
@@ -119,6 +133,71 @@ export function formatPercent(fraction, { maximumFractionDigits = 0, fallback = 
 }
 
 /**
+ * Renders a value that is *already in percent* ("9.00" → "9%"), as opposed to
+ * `formatPercent`, which takes a 0–1 fraction.
+ *
+ * GST rates and materials markups arrive in this shape, and conflating the two
+ * would print a 9% GST as 900%.
+ */
+export function formatPercentValue(value, { maximumFractionDigits = 2, fallback = "—" } = {}) {
+  const parsed = toNumber(value);
+
+  if (parsed === null) return fallback;
+
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(parsed)}%`;
+}
+
+/**
+ * A response time in hours → "4h", "48h", "2 days".
+ *
+ * Services are sold on how fast someone attends site, and a bare "48" in a column
+ * labelled hours is the kind of number a buyer misreads by an order of magnitude,
+ * so the unit is always spelled out. Hours are used up to 48 — the same
+ * hours/days threshold the deadline countdown uses, and how an SLA is actually
+ * written ("48h response") — and days beyond it, where a count of hours stops
+ * being readable.
+ */
+export function formatHours(hours, fallback = "—") {
+  const value = toNumber(hours);
+
+  if (value === null) return fallback;
+
+  if (value <= 48) {
+    return `${formatNumber(value, { maximumFractionDigits: 1 })}h`;
+  }
+
+  if (Number.isInteger(value / 24)) return `${value / 24} days`;
+
+  const whole = Math.floor(value / 24);
+  const rest = value % 24;
+
+  return `${whole}d ${formatNumber(rest, { maximumFractionDigits: 1 })}h`;
+}
+
+/**
+ * A rate basis / unit of measure → a phrase that reads correctly after a price.
+ *
+ * "per job" and "lump sum" are already phrases and are left alone; "pcs" is a
+ * bare unit, so a rate reads "$120 per pcs" rather than "$120 pcs". The list of
+ * bases itself lives in `/meta/options` — this only formats whatever it is given.
+ */
+export function formatRateBasis(unit, fallback = "—") {
+  if (!unit) return fallback;
+
+  const text = String(unit).trim();
+
+  if (!text) return fallback;
+
+  const lower = text.toLowerCase();
+
+  if (lower === "lump sum" || lower === "lot") return text;
+
+  if (lower.startsWith("per ")) return text;
+
+  return `per ${text}`;
+}
+
+/**
  * Deadline countdown from the dashboard's `hours_left` field (which is negative
  * once a deadline has passed): "36 h left", "3 h overdue", "4 d 6 h left".
  */
@@ -146,24 +225,40 @@ export function formatHoursRemaining(hours) {
 /**
  * Quote/RFQ field keys → buyer-readable labels.
  *
- * `missing_fields` and `required_fields` carry machine keys (`unit_price`),
- * while the API only supplies `missing_field_labels` on some projections
- * (`QuoteResult` has none), so the UI needs its own mapping to label chips and
- * the dashboard's chase list consistently.
+ * This is the *fallback* only. The API sends the supplier-facing wording with the
+ * record — `RFQResponse.required_field_labels`, `missing_field_labels` on
+ * invitations and quotes — and those must win, because they are the words the
+ * follow-up emails use and the only table that can stay in step with the
+ * backend's required-field contract. The map below covers the projections that
+ * carry bare keys (`QuoteResult.missing_fields`) so a gap is never an unlabelled
+ * chip, and is deliberately type-neutral: `lead_time` is "mobilisation time" for
+ * a maintenance job and "production lead time" for goods, which only the API
+ * knows.
  */
 const FIELD_LABELS = {
-  unit_price: "Unit price",
+  unit_price: "Rate / unit price",
   currency: "Currency",
-  unit: "Unit of measure",
-  lead_time: "Lead time",
-  moq: "MOQ",
+  unit: "Rate basis",
+  response_time: "Response time (SLA)",
+  response_time_hours: "Response time (SLA)",
+  lead_time: "Mobilisation / lead time",
+  lead_time_days: "Mobilisation / lead time",
+  moq: "Minimum callout / order",
   payment_terms: "Payment terms",
-  incoterms: "Incoterms",
-  validity_date: "Validity date",
-  warranty_months: "Warranty",
-  shipping_cost: "Shipping cost",
-  duties: "Duties",
-  taxes: "Taxes",
+  incoterms: "Delivery terms (Incoterms)",
+  validity_date: "Rates valid until",
+  warranty_months: "Defect liability period",
+  defect_liability: "Defect liability period",
+  callout_charge: "Callout / attendance charge",
+  labour_rate: "Labour rate per hour",
+  materials_markup: "Materials markup",
+  materials_markup_pct: "Materials markup",
+  compliance: "Accreditations and licences",
+  compliance_accreditations: "Accreditations and licences",
+  gst_rate: "GST rate",
+  shipping_cost: "Freight or delivery",
+  duties: "Duty and clearance cost",
+  taxes: "Tax amount",
   discount: "Discount",
 };
 
