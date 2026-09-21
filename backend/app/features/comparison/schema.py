@@ -140,6 +140,19 @@ class ComparisonResponse(BaseModel):
     quantity: int = 0
     unit: str = "pcs"
 
+    #: What was being bought, and the credentials the buyer required.
+    #:
+    #: The engine has computed both since the services pivot and stores them on the
+    #: comparison row, but this schema never declared them — so ``to_response``
+    #: dropped them and every consumer had to guess. The comparison table's
+    #: accreditation column therefore read "None required" on a services RFQ that
+    #: required a licensed electrician, and the "N of M required" line and its
+    #: missing-licence chips could never render. The per-quote shortfall survived
+    #: only as a risk flag, which is the wrong place for it: a licence the work
+    #: cannot lawfully proceed without is a column, not a footnote.
+    procurement_type: str = "service"
+    required_accreditations: list[str] = Field(default_factory=list)
+
     weights: dict[str, float] | None
     fx_rates: dict[str, Any] | None
 

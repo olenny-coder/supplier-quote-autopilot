@@ -645,6 +645,88 @@ def test_a_manually_entered_service_quote_is_assessed_against_the_service_contra
     assert body["missing_accreditations"] == []
 
 
+def test_the_comparison_serves_the_requirements_it_was_scored_against(client, buyer):
+    """The accreditation column needs the RFQ's required list, not just the shortfall.
+
+    The engine has always computed both, but ``ComparisonResponse`` did not declare
+    them, so ``to_response`` dropped them. The comparison table's accreditation
+    column therefore read "None required" on a services RFQ that required a licensed
+    electrician, and the "N of M required" line and its missing-licence chips could
+    never render — the shortfall survived only as a risk flag, which is the wrong
+    place for a licence the work cannot lawfully proceed without.
+    """
+
+    _submit_two(client, buyer)
+
+    body = client.get(
+        f"/rfqs/{buyer['rfq_id']}/comparison", headers=buyer["headers"]
+    ).json()
+
+    assert body["procurement_type"] == "service"
+    assert body["required_accreditations"] == [LEW, BIZSAFE]
+
+    unlicensed = next(
+        item
+        for item in body["results"]
+        if item["supplier_name"] == "Sin Heng M&E Pte Ltd"
+    )
+
+    assert unlicensed["missing_accreditations"] == [LEW]
+
+    held = [
+        item
+        for item in unlicensed["compliance_accreditations"]
+        if item in body["required_accreditations"]
+    ]
+
+    assert len(held) == 1, "one of the two required licences is held"
+
+
+def test_a_goods_rfq_reports_no_required_accreditations(client):
+    """Absence of a requirement must read as absence, not as a silent pass."""
+
+    registration = client.post(
+        "/auth/register", json={**BUYER, "email": "goods-comp@x.example.com"}
+    )
+    headers = _auth(registration.json()["access_token"])
+
+    rfq = client.post(
+        "/rfqs",
+        headers=headers,
+        json={
+            "item_name": "Hex bolt",
+            "specification": "SS304",
+            "procurement_type": "goods",
+            "quantity": 100,
+            "unit": "pcs",
+            "delivery_expectation": (date.today() + timedelta(days=30)).isoformat(),
+        },
+    ).json()
+
+    created = client.post(
+        f"/rfqs/{rfq['id']}/quotes",
+        headers=headers,
+        json={
+            "supplier_name": "Fastener Co",
+            "currency": "SGD",
+            "unit_price": "2.50",
+            "unit": "pcs",
+            "lead_time": 14,
+            "moq": 100,
+            "payment_terms": "Net 30",
+            "incoterms": "FOB",
+            "validity_date": (date.today() + timedelta(days=60)).isoformat(),
+        },
+    )
+
+    assert created.status_code == 201, created.text
+
+    body = client.get(f"/rfqs/{rfq['id']}/comparison", headers=headers).json()
+
+    assert body["procurement_type"] == "goods"
+    assert body["required_accreditations"] == []
+
+
 def test_awarding_still_requires_an_explicit_human_decision(client, buyer):
     """The guardrail is unchanged by the pivot, and an incomplete quote needs a
     deliberate override even to be considered."""

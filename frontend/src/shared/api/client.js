@@ -93,6 +93,12 @@ const client = axios.create({
 });
 
 client.interceptors.request.use((config) => {
+  // Endpoints that are public by contract opt out with `skipAuth`. The demo
+  // workspace is one of them: a token left in storage by an earlier session on a
+  // shared browser must not be attached to a request an anonymous visitor made,
+  // so the header is never added rather than added and then stripped.
+  if (config.skipAuth) return config;
+
   const token = getStoredToken();
 
   if (token) {
@@ -107,7 +113,9 @@ client.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
 
-    if (status === 401) {
+    // A public call (`skipAuth`) has no session to recover, so a 401 on it must
+    // not drag the visitor off the page they are reading and into the login form.
+    if (status === 401 && !error.config?.skipAuth) {
       clearStoredToken();
 
       const { pathname, search } = window.location;

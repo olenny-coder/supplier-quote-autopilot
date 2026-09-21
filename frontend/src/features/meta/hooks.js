@@ -51,13 +51,20 @@ function loadMetaOptions() {
  * settles; every caller must therefore tolerate a null taxonomy (the pickers
  * degrade rather than blocking the form), and `error` is a string, not a thrown
  * error, so a failed meta call never blanks a page that has other data.
+ *
+ * `enabled: false` renders the hook inert: no request, no state churn. It exists
+ * for callers that already hold the taxonomy — the read-only demo page receives
+ * `/meta/options` inside the demo payload, and an anonymous visitor there must not
+ * cause a request to any other endpoint.
  */
-export function useMetaOptions() {
+export function useMetaOptions({ enabled = true } = {}) {
   const [options, setOptions] = useState(cachedOptions);
-  const [loading, setLoading] = useState(!cachedOptions);
+  const [loading, setLoading] = useState(enabled && !cachedOptions);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!enabled) return undefined;
+
     if (cachedOptions) return undefined;
 
     let active = true;
@@ -82,7 +89,7 @@ export function useMetaOptions() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
 
   return { options, loading, error };
 }

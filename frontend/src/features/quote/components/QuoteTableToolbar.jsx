@@ -22,7 +22,7 @@ function QuoteTableToolbar({ query, setQuery, total, visible }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search supplier, terms, licences…"
           aria-label="Search quotes"
-          className="w-full rounded-lg border border-border-default bg-surface py-2 pl-9 pr-8 text-sm text-content placeholder:text-subtle transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50"
+          className="w-full rounded-lg border border-border-default bg-surface py-2 pl-9 pr-8 text-base text-content placeholder:text-subtle transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 sm:text-sm"
         />
 
         {query && (

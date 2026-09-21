@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button, FormField, inputClass } from "@/shared/components/ui";
+import { buttonClass } from "@/shared/lib/button";
 
 import AuthLayout from "../components/AuthLayout";
 import { resolveRedirectTarget, withNext } from "../navigation";
@@ -247,6 +248,20 @@ function RegisterPage() {
         >
           Create account
         </Button>
+
+        {/* Not ready to sign up? The demo shows a complete tender, scored, with
+            no account — which is the honest answer to "what does this do?". */}
+        <div className="flex items-center gap-3 pt-1">
+          <span className="h-px flex-1 bg-border-default" />
+          <span className="text-xs font-medium uppercase tracking-wider text-subtle">
+            or
+          </span>
+          <span className="h-px flex-1 bg-border-default" />
+        </div>
+
+        <Link to="/demo" className={`${buttonClass("outline", "lg")} w-full`}>
+          Explore the demo — no account needed
+        </Link>
       </form>
     </AuthLayout>
   );

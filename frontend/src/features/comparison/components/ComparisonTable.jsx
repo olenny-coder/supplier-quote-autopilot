@@ -34,10 +34,18 @@ import { useMetaOptions } from "@/features/meta/hooks";
  *
  * Scores and money are JSON strings (Python `Decimal`), so every value is parsed
  * with `toNumber()` before it is formatted or turned into a bar width.
+ *
+ * `meta` is an escape hatch for callers that already hold the taxonomy: the read-only
+ * demo page is served the `/meta/options` payload inside its own response, and an
+ * anonymous visitor must not trigger a request to any other endpoint. When it is
+ * passed, the shared cache is not consulted and nothing is fetched; when it is not,
+ * the behaviour is exactly as before.
  */
 
-function ComparisonTable({ comparison }) {
-  const { options: meta } = useMetaOptions();
+function ComparisonTable({ comparison, meta: providedMeta = null }) {
+  const { options: fetchedMeta } = useMetaOptions({ enabled: !providedMeta });
+
+  const meta = providedMeta || fetchedMeta;
 
   const results = comparison?.results || [];
 

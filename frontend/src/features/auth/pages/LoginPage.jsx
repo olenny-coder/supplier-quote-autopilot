@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button, FormField, inputClass } from "@/shared/components/ui";
+import { buttonClass } from "@/shared/lib/button";
 
 import AuthLayout from "../components/AuthLayout";
 import { resolveRedirectTarget, withNext } from "../navigation";
@@ -153,6 +154,21 @@ function LoginPage() {
         >
           Sign in
         </Button>
+
+        {/* The demo sits beside the form rather than only in the footer: a
+            visitor who is not ready to sign in should not have to scroll past the
+            login they cannot complete to find out what the product does. */}
+        <div className="flex items-center gap-3 pt-1">
+          <span className="h-px flex-1 bg-border-default" />
+          <span className="text-xs font-medium uppercase tracking-wider text-subtle">
+            or
+          </span>
+          <span className="h-px flex-1 bg-border-default" />
+        </div>
+
+        <Link to="/demo" className={`${buttonClass("outline", "lg")} w-full`}>
+          Explore the demo — no account needed
+        </Link>
       </form>
     </AuthLayout>
   );

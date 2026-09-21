@@ -10,6 +10,7 @@ import LoginPage from "@/features/auth/pages/LoginPage";
 import RegisterPage from "@/features/auth/pages/RegisterPage";
 import ChatWidget from "@/features/chat/components/ChatWidget";
 import DashboardPage from "@/features/dashboard/pages/DashboardPage";
+import DemoPage from "@/features/demo/pages/DemoPage";
 import PendingFollowUpsPage from "@/features/followup/pages/PendingFollowUpsPage";
 import CreateRFQPage from "@/features/rfq/pages/CreateRFQPage";
 import RFQDetailsPage from "@/features/rfq/pages/RFQDetailsPage";
@@ -64,6 +65,12 @@ function App() {
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+
+        {/* Public, read-only: one sample tender, rendered from
+            `GET /demo/workspace`, for a visitor with no account. Deliberately
+            outside `ProtectedRoute` and outside `AppShell` — the demo calls no
+            authenticated endpoint, and the shell's chat widget does. */}
+        <Route path="/demo" element={<DemoPage />} />
 
         {/* Protected: everything below shares the header/footer/chat shell. */}
         <Route element={<ProtectedRoute />}>

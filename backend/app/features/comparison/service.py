@@ -328,6 +328,15 @@ class ComparisonService:
             base_incoterms=comparison.base_incoterms,
             quantity=rfq.quantity if rfq is not None else 0,
             unit=(rfq.unit if rfq is not None else "pcs") or "pcs",
+            # Served from the RFQ rather than the comparison row: the requirements are
+            # the RFQ's current contract, and a snapshot taken last week should not
+            # tell a buyer what they used to require.
+            procurement_type=(
+                (rfq.procurement_type if rfq is not None else None) or "service"
+            ),
+            required_accreditations=list(
+                (rfq.required_accreditations if rfq is not None else None) or []
+            ),
             weights=comparison.weights,
             fx_rates=comparison.fx_rates,
             results=results,
