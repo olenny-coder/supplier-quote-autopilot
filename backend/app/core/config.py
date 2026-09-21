@@ -193,6 +193,18 @@ class Settings(BaseSettings):
     #: Shared secret for POST /internal/scheduler/tick (external cron).
     SCHEDULER_SECRET: str = ""
 
+    # ---------------------------------------------------------------------- demo
+    #: Serve the read-only demo workspace at GET /demo/workspace.
+    #:
+    #: The payload is a committed snapshot produced by the demo seed through the
+    #: real engine, so a visitor with no account can see what the product computes
+    #: without touching the database. It is a single GET: there is nothing to write,
+    #: no token is issued, and no demo endpoint accepts a body — so "view only" is a
+    #: property of the route table rather than a rule the UI is trusted to follow.
+    #:
+    #: Turn it off on a deployment that should not carry a demo at all.
+    DEMO_MODE_ENABLED: bool = True
+
     # ----------------------------------------------------------------- comparison
     #: Default currency. SGD because this product is aimed at Singapore facilities
     #: and building-services procurement; a deployment elsewhere sets its own.

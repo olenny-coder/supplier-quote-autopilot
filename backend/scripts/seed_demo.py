@@ -63,6 +63,8 @@ from app.features.rfq import taxonomy  # noqa: E402
 from app.features.rfq.model import RFQ  # noqa: E402
 from app.features.rfq.schema import RFQCreate  # noqa: E402
 from app.features.rfq.service import RFQService  # noqa: E402
+from scripts.demo_snapshot import DEFAULT_DEMO_DESTINATION  # noqa: E402
+from scripts.demo_snapshot import dump_demo  # noqa: E402
 from app.features.supplier.model import Supplier  # noqa: E402
 from app.features.supplier.schema import SupplierCreate  # noqa: E402
 from app.features.supplier.service import SupplierService  # noqa: E402
@@ -534,6 +536,15 @@ def main() -> int:
         help="verify the seeded workspace satisfies the demo's invariants and exit "
         "non-zero if not. Used by CI.",
     )
+    parser.add_argument(
+        "--dump-demo",
+        nargs="?",
+        const=str(DEFAULT_DEMO_DESTINATION),
+        default=None,
+        metavar="PATH",
+        help="also write the read-only demo snapshot that GET /demo/workspace "
+        f"serves. Defaults to {DEFAULT_DEMO_DESTINATION}",
+    )
     args = parser.parse_args()
 
     Base.metadata.create_all(bind=engine)
@@ -606,6 +617,17 @@ def main() -> int:
                 return 1
 
             print("  every demo invariant holds")
+
+        if args.dump_demo:
+            print()
+            print("Writing the read-only demo snapshot...")
+            written = dump_demo(
+                db,
+                user,
+                destination=args.dump_demo,
+                demo_email=DEMO_EMAIL,
+            )
+            print(f"  {written}")
 
         print("Demo data ready.")
         print()

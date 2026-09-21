@@ -188,6 +188,17 @@ services:
       - key: CAPTCHA_SECRET_KEY
         sync: false
 
+      # -------------------------------------------------------------------- demo
+      # GET /demo/workspace — a sample tender anyone can read with no account.
+      # The payload is the committed snapshot at
+      # app/features/demo/workspace.json, regenerated with
+      #   python -m scripts.seed_demo --dump-demo
+      # It is a file rather than a query, so an anonymous visitor can never read
+      # real suppliers or prices, and nothing under /demo accepts a write.
+      # Set false to ship without a demo.
+      - key: DEMO_MODE_ENABLED
+        value: "true"
+
       # -------------------------------------------------------------- follow-ups
       # `false` = every reminder is queued as a draft for the buyer to approve.
       # Flip to `true` to auto-send reminders. Awarding ALWAYS needs a human.

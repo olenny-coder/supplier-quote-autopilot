@@ -38,6 +38,7 @@ from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.comparison.router import router as comparison_router
 from app.features.dashboard.router import router as dashboard_router
+from app.features.demo.router import router as demo_router
 from app.features.followup.router import internal_router
 from app.features.followup.router import router as followup_router
 from app.features.followup.scheduler import runner as scheduler_runner
@@ -177,6 +178,13 @@ app.include_router(chat_router)
 # ---- public (token-authenticated) ------------------------------------------
 app.include_router(meta_router)
 app.include_router(public_form_router)
+
+# ---- public (no credential at all, read-only) -------------------------------
+# The demo is deliberately mounted here, apart from the authenticated routers: it
+# takes no token, holds no session, and exposes a single GET. Nothing in its route
+# table can mutate state, which is what makes "look but do not touch" a property of
+# the API rather than a promise the front end keeps.
+app.include_router(demo_router)
 
 # ---- internal (shared secret) ----------------------------------------------
 app.include_router(internal_router)
