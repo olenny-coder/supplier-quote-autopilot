@@ -176,6 +176,14 @@ services:
         sync: false
       - key: S3_PUBLIC_BASE_URL
         sync: false
+      # `path` for every S3-compatible provider — Neon Object Storage documents
+      # path-style as required, and R2, MinIO and B2 all support it. `auto` is
+      # botocore's default (virtual-hosted when the bucket name is DNS-compatible)
+      # and is only right for real AWS S3. Getting this wrong fails against
+      # `<bucket>.<endpoint>`, a hostname nobody configured, so it reads as an
+      # outage rather than a setting.
+      - key: S3_ADDRESSING_STYLE
+        value: path
       - key: MAX_UPLOAD_MB
         value: "10"
 

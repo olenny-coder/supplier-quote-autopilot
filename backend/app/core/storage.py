@@ -1,9 +1,12 @@
 """Attachment storage: local filesystem in dev, S3-compatible in production.
 
 Render's free tier has **no persistent disk**, so production must use object
-storage. Any S3-compatible service works — Cloudflare R2, Backblaze B2, or Neon
-Object Storage — configured with ``STORAGE_BACKEND=s3`` plus the ``S3_*``
-variables.
+storage. Any S3-compatible service works — Neon Object Storage, Cloudflare R2, or
+Backblaze B2 — configured with ``STORAGE_BACKEND=s3`` plus the ``S3_*`` variables.
+
+For an S3-compatible provider, also set ``S3_ADDRESSING_STYLE=path``. Neon Object
+Storage requires it, and so do R2 and MinIO; leave it at ``auto`` only for real AWS
+S3, where path-style was deprecated for new buckets.
 
 Storage keys are always ``<scope>/<uuid><ext>``: caller-supplied names never
 reach the filesystem, which removes path traversal as a category of bug. The
@@ -131,6 +134,7 @@ class S3Storage:
 
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - depends on extras
             raise ExternalServiceError(
                 "boto3 is not installed; add it or use STORAGE_BACKEND=local."
@@ -138,12 +142,19 @@ class S3Storage:
 
         self.bucket = settings.S3_BUCKET
 
+        # `addressing_style` is not optional trivia. With botocore's `auto`, a
+        # DNS-compatible bucket name goes into the *host* (`<bucket>.<endpoint>`),
+        # which an S3-compatible provider such as Neon Object Storage will not
+        # resolve — Neon documents path-style as required. The failure surfaces as a
+        # connection error against a hostname nobody configured, so it reads like an
+        # outage rather than a setting.
         self._client = boto3.client(
             "s3",
             endpoint_url=settings.S3_ENDPOINT_URL or None,
             region_name=settings.S3_REGION or None,
             aws_access_key_id=settings.S3_ACCESS_KEY_ID or None,
             aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY or None,
+            config=Config(s3={"addressing_style": settings.S3_ADDRESSING_STYLE}),
         )
 
     async def save(self, key: str, data: bytes, content_type: str) -> None:

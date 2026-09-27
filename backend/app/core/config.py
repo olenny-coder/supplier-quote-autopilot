@@ -166,6 +166,20 @@ class Settings(BaseSettings):
     # downloads are proxied through the backend.
     S3_PUBLIC_BASE_URL: str = ""
 
+    #: How the bucket name is put into the request URL.
+    #:
+    #:   auto    botocore's own default: virtual-hosted when the bucket name is
+    #:           DNS-compatible. Correct for real AWS S3, where path-style was
+    #:           deprecated for buckets created after September 2020.
+    #:   path    ``<endpoint>/<bucket>/<key>``. What the S3-compatible providers
+    #:           want — Neon Object Storage documents ``forcePathStyle: true`` as
+    #:           required, and Cloudflare R2, MinIO and Backblaze B2 all support it.
+    #:
+    #: Getting this wrong produces a DNS or certificate error against a hostname
+    #: that was never meant to exist (``<bucket>.<endpoint>``), which reads like an
+    #: outage rather than a configuration choice. Set it to ``path`` for Neon.
+    S3_ADDRESSING_STYLE: str = "auto"
+
     # ------------------------------------------------- public form & anti-spam
     INVITATION_TTL_DAYS: int = 30
     # Per-IP request budget for the public endpoints.
