@@ -210,6 +210,7 @@ def health_check():
         database_error = type(exc).__name__
 
     storage_backend = settings.STORAGE_BACKEND
+    storage_error = None
 
     try:
         get_storage()
@@ -217,6 +218,11 @@ def health_check():
     except Exception as exc:  # noqa: BLE001
         storage_ok = False
         storage_backend = f"{storage_backend} (misconfigured: {type(exc).__name__})"
+        # The message, not just the exception class. `misconfigured:
+        # ExternalServiceError` says something is wrong but not what, so the next
+        # step is guessing between five settings in a hosting dashboard. The
+        # exception text names the empty variable.
+        storage_error = str(exc)[:400]
 
     llm = llm_status()
     email = describe_email()
@@ -241,7 +247,12 @@ def health_check():
                     "after that is slow."
                 ),
             },
-            "storage": {"backend": storage_backend, "ok": storage_ok},
+            "storage": {
+                "backend": storage_backend,
+                "ok": storage_ok,
+                # Null when fine; otherwise the reason, naming any unset variable.
+                "error": storage_error,
+            },
             "llm": llm,
             "email": email,
             "spam_protection": describe_spam(),

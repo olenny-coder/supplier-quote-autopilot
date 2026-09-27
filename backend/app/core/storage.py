@@ -126,11 +126,24 @@ class LocalStorage:
 class S3Storage:
     """Any S3-compatible object store (R2 / B2 / Neon Object Storage / AWS)."""
 
+    #: The variables an S3 backend needs, in the order a person should check them.
+    #:
+    #: `S3_BUCKET` is the only hard requirement — the rest have a legitimate way of
+    #: being supplied from somewhere else (an AWS instance profile provides the
+    #: credentials, and botocore can derive the region from the endpoint). But when
+    #: something *is* missing, the message has to name it: "requires S3_BUCKET and S3
+    #: credentials" sent the author of this code hunting through five variables and a
+    #: Render dashboard when the answer was one empty box.
+    REQUIRED_VARIABLES = (
+        "S3_BUCKET",
+        "S3_ENDPOINT_URL",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+    )
+
     def __init__(self) -> None:
         if not settings.S3_BUCKET:
-            raise ExternalServiceError(
-                "STORAGE_BACKEND=s3 requires S3_BUCKET and S3 credentials."
-            )
+            raise ExternalServiceError(self.describe_missing_configuration())
 
         try:
             import boto3
@@ -155,6 +168,32 @@ class S3Storage:
             aws_access_key_id=settings.S3_ACCESS_KEY_ID or None,
             aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY or None,
             config=Config(s3={"addressing_style": settings.S3_ADDRESSING_STYLE}),
+        )
+
+    @staticmethod
+    def describe_missing_configuration() -> str:
+        """A message that names the empty variables instead of describing them.
+
+        A deployment that says only "STORAGE_BACKEND=s3 requires S3_BUCKET and S3
+        credentials" leaves the reader to check five settings in a hosting dashboard
+        to find one empty box. Naming them turns that into a single step.
+        """
+
+        unset = [
+            name
+            for name in S3Storage.REQUIRED_VARIABLES
+            if not getattr(settings, name)
+        ]
+
+        if not unset:
+            # Everything is set, so the bucket name itself is the problem.
+            return "STORAGE_BACKEND=s3 is set but the bucket name is empty."
+
+        return (
+            "STORAGE_BACKEND=s3 needs a bucket name, and these are unset: "
+            + ", ".join(unset)
+            + ". Set them on the service (and redeploy), or use "
+            "STORAGE_BACKEND=local to keep uploads on the instance."
         )
 
     async def save(self, key: str, data: bytes, content_type: str) -> None:
