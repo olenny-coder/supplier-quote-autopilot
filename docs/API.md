@@ -74,6 +74,8 @@ Generated from the live OpenAPI schema — `cd backend && uv run python -m scrip
 | `/rfqs/{rfq_id}/overview` | GET | RFQs | Everything the detail page needs, in one request |
 | `/suppliers` | GET | Suppliers | Supplier directory with response statistics |
 | `/suppliers` | POST | Suppliers | Add a supplier |
+| `/suppliers/import` | POST | Suppliers | Add many suppliers from JSON rows |
+| `/suppliers/import/csv` | POST | Suppliers | Add many suppliers from an uploaded CSV |
 | `/suppliers/{supplier_id}` | GET | Suppliers | One supplier with statistics |
 | `/suppliers/{supplier_id}` | PATCH | Suppliers | Update a supplier |
 | `/suppliers/{supplier_id}` | DELETE | Suppliers | Remove a supplier |
@@ -104,6 +106,7 @@ Generated from the live OpenAPI schema — `cd backend && uv run python -m scrip
 | `/rfqs/{rfq_id}/approvals` | GET | Comparison | Award audit trail |
 | `/dashboard/summary` | GET | Dashboard | Workspace roll-up |
 | `/meta/options` | GET | Meta | Taxonomy, defaults and scoring criteria (no auth) |
+| `/demo/workspace` | GET | Demo | Read-only sample tender (no auth, no writes) |
 | `/public/invitations/{rfq_id}/{token}` | GET | Public form | Form preview (branding + required fields) |
 | `/public/invitations/{rfq_id}/{token}/quote` | POST | Public form | **Submit or amend a quote** |
 | `/public/invitations/{rfq_id}/{token}/attachments` | POST | Public form | Upload a file |

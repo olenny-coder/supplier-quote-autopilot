@@ -6,10 +6,13 @@
  * the search and roll-up summary above the table.
  *
  * Layout of the slice:
- *   api.js    – the five `/suppliers` endpoints
+ *   api.js    – the `/suppliers` endpoints, including the two bulk-import posts
  *   hooks.js  – list fetch + error handling (useSuppliers) and the pure
  *               counter roll-up (summariseSuppliers)
+ *   csv.js    – the header-only import template and the paste parser
+ *   importResult.js – client-side row problems merged into the API's result
  *   components/SupplierForm.jsx – the field-level contract of a supplier
+ *   components/SupplierImportModal.jsx – "Bulk upload": CSV file or pasted rows
  *
  * Every number in the table comes from the `SupplierStats` payload of
  * `GET /suppliers` and is parsed with `toNumber()` first, because the backend
@@ -31,6 +34,7 @@ import { RiskBadge } from "@/shared/components/StatusBadge";
 import { createSupplier, deleteSupplier, getSupplierById, updateSupplier } from "../api";
 import { summariseSuppliers, useSuppliers } from "../hooks";
 import SupplierForm from "../components/SupplierForm";
+import SupplierImportModal from "../components/SupplierImportModal";
 
 const COLUMN_COUNT = 10;
 
@@ -77,6 +81,7 @@ function SupplierListPage() {
   const [search, setSearch] = useState("");
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState(null);
   const [loadingSupplierId, setLoadingSupplierId] = useState(null);
@@ -213,18 +218,41 @@ function SupplierListPage() {
           </p>
         </div>
 
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => setShowImportModal(true)}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
-          </svg>
-          Add supplier
-        </Button>
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            Bulk upload
+          </Button>
+
+          <Button className="min-h-11" onClick={() => setShowCreateModal(true)}>
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
+            </svg>
+            Add supplier
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -436,6 +464,14 @@ function SupplierListPage() {
           isSubmitting={isSubmitting}
         />
       </Modal>
+
+      {/* The bulk path refreshes the directory the same way every other mutation
+          on this page does — through `refresh()` from `useSuppliers`. */}
+      <SupplierImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImported={refresh}
+      />
 
       <Modal
         isOpen={showEditModal}
