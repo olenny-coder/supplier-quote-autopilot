@@ -12,6 +12,9 @@ from app.features.invitation.model import Invitation
 from app.features.quote.model import SupplierQuote
 from app.features.supplier.model import Supplier
 from app.features.supplier.schema import SupplierCreate
+from app.features.supplier.schema import SupplierImportResponse
+from app.features.supplier.schema import SupplierImportRowError
+from app.features.supplier.schema import SupplierResponse
 from app.features.supplier.schema import SupplierUpdate
 
 
@@ -90,6 +93,112 @@ class SupplierService:
         db.refresh(supplier)
 
         return supplier
+
+    # ------------------------------------------------------------------ import
+    @staticmethod
+    def import_many(
+        db: Session,
+        user_id: int,
+        payloads,
+        *,
+        on_duplicate: str = "skip",
+        rows: list[int] | None = None,
+    ) -> SupplierImportResponse:
+        """Add many suppliers, reporting per row rather than failing the batch.
+
+        Deliberately not all-or-nothing. A directory export of 300 contractors with
+        four malformed addresses should import 296 and name the four — refusing the
+        whole file over one typo is how a bulk upload becomes useless, and it gives
+        the buyer no way to find the typo either.
+
+        ``on_duplicate="skip"`` is the default so that re-importing an updated
+        spreadsheet does not overwrite the notes, risk rating and reference code the
+        buyer curated by hand. It is the normal case, not the exception.
+
+        ``rows`` is parallel to ``payloads`` and carries the source row number, so an
+        error points at the line in the buyer's spreadsheet rather than at an index
+        in a list they cannot see.
+        """
+
+        errors: list[SupplierImportRowError] = []
+        imported: list[Supplier] = []
+
+        created = 0
+        updated = 0
+        skipped = 0
+
+        for index, payload in enumerate(payloads):
+            row = rows[index] if rows and index < len(rows) else index + 1
+
+            email = SupplierService.normalize_email(str(payload.contact_email))
+
+            existing = SupplierService.get_by_email(db, user_id, email)
+
+            try:
+                if existing is None:
+                    supplier = SupplierService.create(db, user_id, payload)
+                    created += 1
+                elif on_duplicate == "update":
+                    supplier = SupplierService.update(
+                        db,
+                        user_id,
+                        existing.id,
+                        SupplierUpdate(**payload.model_dump()),
+                    )
+                    updated += 1
+                else:
+                    skipped += 1
+                    imported.append(existing)
+                    continue
+            except (ConflictError, ValueError) as exc:
+                errors.append(
+                    SupplierImportRowError(
+                        row=row,
+                        email=email,
+                        name=payload.name,
+                        reason=str(exc)[:300],
+                    )
+                )
+                continue
+
+            imported.append(supplier)
+
+        total = created + updated + skipped + len(errors)
+
+        return SupplierImportResponse(
+            created=created,
+            updated=updated,
+            skipped=skipped,
+            failed=len(errors),
+            total=total,
+            errors=errors,
+            imported=[
+                SupplierResponse.model_validate(supplier) for supplier in imported
+            ],
+            message=SupplierService.import_message(created, updated, skipped, len(errors)),
+        )
+
+    @staticmethod
+    def import_message(created: int, updated: int, skipped: int, failed: int) -> str:
+        """One sentence a buyer can act on, with the counts that matter first."""
+
+        parts: list[str] = []
+
+        if created:
+            parts.append(f"{created} added")
+        if updated:
+            parts.append(f"{updated} updated")
+        if skipped:
+            parts.append(f"{skipped} already in your directory")
+        if failed:
+            parts.append(f"{failed} could not be imported")
+
+        summary = ", ".join(parts) if parts else "Nothing to import"
+
+        if failed and not created and not updated:
+            return f"{summary}. Check the row numbers below."
+
+        return summary + "."
 
     @staticmethod
     def update(

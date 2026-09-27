@@ -1,26 +1,31 @@
 # =============================================================================
-# Render Blueprint — Supplier Quote Autopilot API
+# Render Blueprint — Supplier Quote Autopilot
 # =============================================================================
 # Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
 #
-# This file provisions ONLY the backend. The two frontends go to Vercel (see the
-# README), and the database is Neon rather than Render Postgres — Render's free
-# Postgres expires after 30 days, which would silently take the app down.
+# Provisions all three services: the API, and the two single-page apps as static
+# sites. The database is Neon rather than Render Postgres, because Render's free
+# Postgres expires after 30 days and would silently take the app down.
+#
+# WHY THE FRONTENDS ARE HERE AND NOT ON VERCEL
+#   Render static sites are free and, unlike web services, do NOT draw on the 750
+#   instance hours — so two of them cost nothing and cannot starve the API. They
+#   also carry no commercial-use restriction, which Vercel's Hobby plan does; this
+#   product is a procurement tool, so that restriction is disqualifying rather than
+#   theoretical.
 #
 # Free-tier facts this file is built around:
 #   * 512 MB RAM / 0.1 CPU          -> keep the process light; no worker process
-#   * spins down after 15 min idle  -> /health + an external cron (below)
-#   * 750 instance hours/month      -> one web service, no background worker
-#   * no persistent disk            -> STORAGE_BACKEND=s3 is mandatory
+#   * spins down after 15 min idle  -> /health + an external cron (see README)
+#   * 750 instance hours/month      -> ONE web service; static sites are separate
+#   * no persistent disk            -> STORAGE_BACKEND=s3 if you want uploads
 #   * SMTP ports 25/465/587 BLOCKED -> EMAIL_PROVIDER is an HTTPS API
 #
-# WHY THERE IS NO worker/ OR cron: SERVICES HERE
-#   A Render Cron Job or Background Worker is a second billable service and would
+# WHY THERE IS NO worker/ OR cron: SERVICE HERE
+#   A Render Cron Job or Background Worker is a second billable instance and would
 #   break the 750 free hours. The follow-up scheduler therefore runs (a) as a
-#   background task inside this web service and (b) behind
-#   POST /internal/scheduler/tick, which any free external cron can drive. That
-#   second path is what actually guarantees a schedule once the service has spun
-#   down — see README "Keeping the free tier alive".
+#   background task inside the web service and (b) behind
+#   POST /internal/scheduler/tick, which any free external cron can drive.
 # =============================================================================
 
 services:
@@ -247,3 +252,80 @@ services:
         sync: false
       - key: DEFAULT_SCORING_WEIGHTS_JSON
         sync: false
+
+  # ===========================================================================
+  #  Buyer dashboard — static site
+  # ===========================================================================
+  # `runtime: static` rather than a web service: Render builds the bundle and
+  # serves it from its CDN. There is no `startCommand` and no `plan` because there
+  # is no long-running instance — which is exactly why this costs nothing and does
+  # not touch the 750 instance hours the API depends on.
+  - type: web
+    name: supplier-quote-dashboard
+    runtime: static
+    branch: main
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: true
+
+    envVars:
+      # ⚠️ Build-time, not runtime. Vite inlines `import.meta.env.*` while the
+      # bundle is built, so changing this requires a **deploy**, not just an env
+      # edit. Point it at the API service above.
+      - key: VITE_API_URL
+        sync: false
+
+    # Client-side routing: every path that is not a real file falls back to the SPA,
+    # so a refresh on /rfqs/12 or a pasted deep link does not 404. This replaces the
+    # rewrite that `frontend/vercel.json` performed.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    headers:
+      # Vite fingerprints the filenames, so a hashed asset can be cached hard.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      # The HTML entry point must not be, or a deploy would keep serving the old
+      # bundle to anyone with it cached.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+
+  # ===========================================================================
+  #  Supplier quote form — static site
+  # ===========================================================================
+  # A separate service on purpose: suppliers reach a different origin from buyers,
+  # so a link pasted into an email cannot be confused with the buyer's app and the
+  # two can be deployed independently.
+  - type: web
+    name: supplier-quote-form
+    runtime: static
+    branch: main
+    rootDir: public_form
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: true
+
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+
+    routes:
+      # The supplier link is /quote/<rfq_id>/<token>; without this, opening one
+      # directly would 404 on the static host and every invitation would be dead.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+

@@ -212,11 +212,47 @@ jobs:
               data = yaml.safe_load(handle)
           services = data.get("services") or []
           assert services, "render.yaml defines no services"
+
+          # A static site and a web service have different obligations, so the
+          # checks are split rather than applied uniformly. Asserting `plan: free`
+          # or a `startCommand` on a static site would reject a perfectly valid
+          # blueprint: there is no instance to price and no process to start.
+          names = set()
           for service in services:
-              assert service["type"] == "web", "only web services fit the free tier"
-              assert service.get("plan") == "free", "free plan expected"
-              assert service.get("startCommand"), "startCommand is required"
-          print("render.yaml is valid")
+              assert service["type"] == "web", f"{service['name']}: only web services fit the free tier"
+              assert service["name"] not in names, f"duplicate service name {service['name']}"
+              names.add(service["name"])
+
+              runtime = service.get("runtime")
+              assert runtime, f"{service['name']}: runtime is required"
+
+              if runtime == "static":
+                  assert service.get("staticPublishPath"), (
+                      f"{service['name']}: a static site must publish a path"
+                  )
+                  assert service.get("rootDir"), (
+                      f"{service['name']}: rootDir is required in this monorepo"
+                  )
+                  # Without a catch-all rewrite, a refresh on a client-side route
+                  # 404s on the static host. That is the single most common way a
+                  # deployed SPA looks broken.
+                  rewrites = [
+                      route for route in service.get("routes", [])
+                      if route.get("type") == "rewrite"
+                  ]
+                  assert any(r.get("destination") == "/index.html" for r in rewrites), (
+                      f"{service['name']}: needs a catch-all rewrite to /index.html, "
+                      f"or deep links 404 on refresh"
+                  )
+              else:
+                  assert service.get("plan") == "free", (
+                      f"{service['name']}: free plan expected"
+                  )
+                  assert service.get("startCommand"), (
+                      f"{service['name']}: startCommand is required"
+                  )
+
+          print(f"render.yaml is valid ({len(services)} services)")
           PY
 
       - name: Validate the Vercel configs are valid JSON with SPA rewrites
