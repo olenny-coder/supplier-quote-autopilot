@@ -1,8 +1,15 @@
 """Invitation email copy.
 
 Plain text, written to be read on a phone, with the link on its own line so it is
-tappable everywhere. The buyer's company name is the sender identity — suppliers
-need to know who is asking before they will spend time quoting.
+tappable everywhere.
+
+Two things this email has to do at once, and they pull in opposite directions. It
+has to name the buyer, because a supplier will not spend time quoting for an
+organisation they cannot identify. And it has to be honest that the message was
+written and sent by a system, not by a person at that organisation. So the buyer is
+named in the opening sentence and in the sign-off, and the sign-off is the product:
+"Best regards, Quote Autopilot, on behalf of <buyer>". The wording lives in
+:mod:`agents.email_copy` so the invitations and the reminders cannot drift apart.
 
 The list of what to include is built from the RFQ's *own* required-field contract
 and its type-aware labels, never from a fixed sentence. A hard-coded sentence asked
@@ -11,6 +18,11 @@ quantity" — two fields a services RFQ does not even collect, while never menti
 the response time it does require. Copy that names the wrong fields is worse than no
 copy: it produces a quote missing exactly what the buyer needs.
 """
+
+from agents.email_copy import PRIVACY_NOTE
+from agents.email_copy import introduction
+from agents.email_copy import reply_note
+from agents.email_copy import signature
 
 
 def _join_phrases(items: list[str]) -> str:
@@ -72,7 +84,9 @@ def build_invitation_email(
     lines = [
         greeting,
         "",
-        f"{buyer_company} would like a quotation for the following:",
+        # Introduces the product in the same sentence that names the buyer, so a
+        # supplier never has to work out who is asking or why a system is writing.
+        introduction(item_name, rfq_number, buyer_company),
         "",
         f"  Item:       {item_name}",
         f"  Spec:       {specification}",
@@ -126,19 +140,18 @@ def build_invitation_email(
     if deadline_text:
         lines += ["", f"We would appreciate your quote by {deadline_text}."]
 
-    lines += [""]
-
-    if buyer_contact_email:
-        lines += [
-            f"If anything is unclear, reply to this email or write to "
-            f"{buyer_contact_email}.",
-            "",
-        ]
-
-    lines.append(
-        "Best regards,\n"
-        + (buyer_contact_name + "\n" if buyer_contact_name else "")
-        + buyer_company
-    )
+    lines += [
+        "",
+        # Answers the question a contractor actually has before bidding: who else
+        # sees my price? Left unsaid, it is a reason not to bother.
+        PRIVACY_NOTE,
+        "",
+        reply_note(buyer_contact_name, buyer_company, buyer_contact_email),
+        "",
+        # The product signs, with the buyer named beneath it. See the module
+        # docstring: the message was written by a system and should not pretend
+        # otherwise, and the supplier still has to know who they are quoting to.
+        signature(buyer_company),
+    ]
 
     return subject, "\n".join(lines)

@@ -12,6 +12,7 @@ import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Notice from "@/components/Notice";
 import ProgressNotice from "@/components/ProgressNotice";
 import SiteScopeCard from "@/components/SiteScopeCard";
+import SubmitBar from "@/components/SubmitBar";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import ErrorPage from "@/pages/ErrorPage";
 import {
@@ -1162,37 +1163,13 @@ export default function QuoteFormPage() {
             scrolling back through seventeen fields. It becomes a normal
             in-flow block from `sm` up, where the whole form is visible at once.
           */}
-          <div
-            className="sticky bottom-0 z-20 -mx-4 mt-2 border-t border-border-default bg-bg px-4 pt-3 sm:static sm:mx-0 sm:rounded-2xl sm:border sm:border-border-default sm:bg-surface sm:p-4"
-            style={{ paddingBottom: "calc(0.75rem + var(--safe-bottom))" }}
-          >
-            <p
-              aria-live="polite"
-              className={[
-                "mb-2 text-sm font-medium",
-                submitState.status === "error"
-                  ? "text-danger-soft-fg"
-                  : submitState.status === "success"
-                    ? "text-success-soft-fg"
-                    : "text-muted",
-              ].join(" ")}
-            >
-              {submitState.message}
-            </p>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="min-h-[52px] w-full rounded-xl bg-primary px-5 text-base font-semibold text-primary-fg transition-colors hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {submitting ? "Sending…" : submitLabel}
-            </button>
-            <p className="mt-2 text-center text-xs text-muted">
-              {requiredSet.size > 0
-                ? "Fields marked * are what the buyer needs. You can still send a partial quote — they will follow up by email."
-                : "You can send this quote as it is."}
-            </p>
-          </div>
+          <SubmitBar
+            status={submitState.status}
+            message={submitState.message}
+            submitting={submitting}
+            label={submitLabel}
+            hasRequiredFields={requiredSet.size > 0}
+          />
         </form>
 
         <p className="mt-6 text-center text-xs text-subtle">

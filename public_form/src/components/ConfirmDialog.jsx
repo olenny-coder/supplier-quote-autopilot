@@ -50,9 +50,11 @@ export default function ConfirmDialog({
 
   return (
     <div
-      // Fixed overlay; the rgba value is inline rather than a Tailwind theme
-      // colour so the scrim is never affected by a token change.
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(15,23,42,0.55)] p-0 sm:items-center sm:p-4"
+      // Fixed overlay. The scrim is a semantic token (`--scrim`, surfaced as
+      // `bg-scrim`) rather than an inline rgba: the navy that dims the light page
+      // nicely disappears over the dark one, so the value has to flip with the
+      // theme like every other surface.
+      className="fixed inset-0 z-50 flex items-end justify-center bg-scrim p-0 sm:items-center sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onCancel?.();
       }}

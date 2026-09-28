@@ -9,7 +9,7 @@ headline price, and award as a human.
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/UI-React%2019-61DAFB.svg?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/database-PostgreSQL-4169E1.svg?logo=postgresql&logoColor=white)
-![424 tests passing](https://img.shields.io/badge/tests-424%20passing-brightgreen.svg)
+![526 tests passing](https://img.shields.io/badge/tests-526%20passing-brightgreen.svg)
 ![Deploy: Neon + Render + Vercel](https://img.shields.io/badge/deploy-Neon%20%2B%20Render%20%2B%20Vercel-3DDC84.svg)
 ![LLM: Groq / OpenRouter / Gemini](https://img.shields.io/badge/LLM-Groq%20%7C%20OpenRouter%20%7C%20Gemini%20(free%20tiers)-blueviolet.svg)
 
@@ -147,6 +147,13 @@ fits inside **free tier deployment** on Neon + Render + Vercel.
   cannot give.
 - An explicit "none" counts as an answer; "TBD" and a promise to send it later do not.
 - Complete communication log per invitation and per RFQ.
+- **One voice in every email a supplier receives.** The invitation and all three follow-up
+  templates introduce Quote Autopilot, name the buyer in the body as well as the sign-off,
+  tell the supplier their pricing is private to them, say where a reply actually lands, and
+  close with `Best regards, / Quote Autopilot / on behalf of <buyer>`. Nothing signs as a
+  person at the buyer, because the message was written and sent by the system. The wording
+  lives in one module (`agents/email_copy.py`) so the four templates cannot drift apart, and
+  the same three rules are stated to the LLM in its system prompt.
 - Runs inside the web process and, because free-tier services sleep, the same sweep is
   exposed at `POST /internal/scheduler/tick` so an external free cron can drive it.
 
@@ -231,6 +238,18 @@ fits inside **free tier deployment** on Neon + Render + Vercel.
 - **A deterministic fallback at every call site.** With `LLM_API_KEY` empty the product
   works completely: quote parsing, follow-up drafting and the comparison narrative all
   fall back to deterministic implementations.
+
+### Interface
+
+- **Light and dark in both web apps**, with a toggle in the header. A first visit follows the
+  device's own setting and an explicit choice is remembered; the scheme is applied before the
+  first paint, so there is no flash of the wrong one. There is one semantic token layer behind
+  both schemes and **no `dark:` variants in any markup**.
+- The comparison grid prints to a single A4 landscape page, with the supplier column and the
+  header held in place on screen while the rest of the table scrolls.
+- The supplier form sets its own CAPTCHA widget to the scheme actually in use, so a dark page
+  never shows a white widget — but a solved challenge is never thrown away just because the
+  theme changed.
 
 ### Deployment
 
@@ -325,6 +344,22 @@ licence. A submission that leaves a required field blank is accepted and marked
 chase beats a form the supplier abandons. They finish on a confirmation page with a
 reference number (`SQ-<rfq number>-<invitation id>`) and the buyer's contact details, and
 they can return to the same link to amend their answer.
+
+**Light and dark.** Both web apps — the buyer dashboard and the supplier form — ship both
+colour schemes, with a toggle in the header. A first visit follows the device's own setting
+(`prefers-color-scheme`); an explicit choice is remembered in `localStorage`. The scheme is
+resolved by a small inline script before the first paint, so a supplier opening a link on a
+dark phone never gets a white flash. Both apps use the same semantic token layer (raw values
+in CSS custom properties, surfaced to Tailwind through `@theme inline`) and **no `dark:` variant
+appears in any markup** — re-theming is a `.dark` class on `<html>` and nothing else.
+
+**Every email is written in one voice.** The product sends, and the buyer is the counterparty.
+The invitation and all three follow-up templates open by naming the buyer and Quote Autopilot,
+state that the quotation is private to that supplier, tell them where a reply actually lands,
+and sign off `Best regards, / Quote Autopilot / on behalf of <buyer>`. The wording lives in one
+module, `agents/email_copy.py`, so the four templates cannot drift apart — and a test asserts
+the same house style on every one of them, plus on the LLM system prompt that drafts the
+personalised variants.
 
 **Nothing is auto-awarded.** The comparison recommends; the buyer decides and writes down
 why.
@@ -709,9 +744,10 @@ Supplier Quote Autopilot
 │   │   └── main.py
 │   ├── alembic/         migrations (env.py reads DATABASE_URL_DIRECT)
 │   ├── scripts/         seed_demo.py · list_routes.py
-│   └── tests/           424 tests, offline and deterministic
+│   └── tests/           526 tests, offline and deterministic
 │
 ├── agents/              PURE domain logic — no web, no database, no I/O
+│   ├── email_copy.py    the house style every supplier email is built from
 │   ├── quote_parser/    submission -> typed quote (+ completeness)
 │   └── followup/        invitation snapshot -> chase / ask / escalate decision
 │
@@ -775,7 +811,7 @@ storage — **is** async. See assumption A1 in [INTEGRATION_PLAN.md](INTEGRATION
 
 ```bash
 cd backend
-uv run pytest -q                                  # the whole suite: 424 tests, ~40s
+uv run pytest -q                                  # the whole suite: 526 tests, ~75s
 uv run pytest tests/test_acceptance.py -q          # one file
 uv run pytest --cov=app --cov-report=term-missing  # coverage
 uv run ruff check . ../agents ../comparison        # lint (correctness rules only)
@@ -795,6 +831,9 @@ injecting a fake completer, never a real provider.
 | `test_comparison_engine.py` | FX, term rebasing, rate-basis conversion, landed/works cost arithmetic, scoring, weighting, ranking, determinism, CSV export. |
 | `test_quote_parser.py` | Verbatim-or-null grounding, layer precedence, normalization, and every completeness rule — including "explicitly none is an answer" and "TBD is not". |
 | `test_followup_policy.py` | Each branch of the decision order, reminder caps, and the escalate-don't-chase rule. |
+| `test_email_house_style.py` | The voice of every supplier-facing email: that the invitation and all three follow-up templates each introduce Quote Autopilot, name the buyer in the body as well as the sign-off, say where a reply lands, and sign off as the product rather than as a person — plus the same three rules in the LLM system prompt. Parametrized over the templates so a new one cannot be added without being covered, and in both the service and the goods vocabulary. |
+| `test_supplier_import.py` | The CSV bulk import: header aliases, duplicate handling (`skip` versus `update`), malformed rows reported without aborting the run, BOM handling, and the row and byte caps. |
+| `test_demo.py` | The public demo: the snapshot loads without a database or a key, the response carries its disclaimer, and the committed snapshot is scanned to prove that no live invitation token, real email address or non-sample form link was ever published into it. |
 | `test_transports.py` | The HTTP email providers, the LLM client's retry/backoff/rate-limit behaviour, and an assertion that **no SMTP code exists anywhere**. |
 | `test_services_comparison.py` | The services domain as pure logic: the nine criteria, the per-type weight sets, the response-time curve, accreditation coverage and the **25.0 cap**, GST resolution across all six rate/amount combinations, the callout in the landed cost, the rate bases (including that "per job" and "lump sum" are one basis while "per sq m" is not a metre), complete-quote-first ranking, and the parser's SLA/percentage/accreditation normalizers. |
 | `test_services_api.py` | The services path end to end through the public HTTP API: `/meta/options` with no credentials, a services RFQ defaulting to SGD and 9% GST, the supplier preview's service fields and server-owned labels, a complete submission round-tripping the SLA and licences, **both accepted spellings** of the three ambiguous field names, an incomplete quote chased for exactly the two fields it is missing, the missing-licence cap reaching the dashboard through `missing_accreditations`, derived GST disclosed in the cost breakdown, and a manual entry assessed against the services contract. |
@@ -930,7 +969,7 @@ fields are named.
 ## 13. Roadmap: what is not built yet
 
 An honest list. These are known and deliberate boundaries of the current version, not
-oversights. It is an MVP with 424 offline tests, a CI pipeline and a free-tier deployment
+oversights. It is an MVP with 526 offline tests, a CI pipeline and a free-tier deployment
 that has been walked through end to end — it has not been through a security audit, and it
 is a solid small-team tool rather than an enterprise system of record.
 

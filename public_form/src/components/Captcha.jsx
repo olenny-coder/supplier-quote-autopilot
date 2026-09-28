@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isCaptchaEnabled, renderCaptchaWidget } from "@/lib/captcha";
+import { useTheme } from "@/theme/ThemeProvider";
 
 /**
  * Renders the buyer's chosen CAPTCHA widget, if any.
@@ -9,14 +10,35 @@ import { isCaptchaEnabled, renderCaptchaWidget } from "@/lib/captcha";
  * form behaves identically — a supplier must never be locked out of submitting a
  * price because a third-party script is blocked on their network.
  *
+ * The widget is a third-party iframe that paints its own background, so it is
+ * drawn in the app's resolved theme: a light widget on a dark form is a white box
+ * in the middle of the page. The theme is already resolved before React mounts
+ * (see index.html), so the first draw is always right.
+ *
  * `resetKey` forces a fresh widget, which matters because provider tokens are
  * single-use: after a failed submit the old token is dead and reusing the widget
  * would fail forever.
  */
 export default function Captcha({ captcha, onToken, onError, resetKey = 0 }) {
+  const { isDark } = useTheme();
   const containerRef = useRef(null);
   const handlersRef = useRef({ onToken, onError });
   const [failed, setFailed] = useState(null);
+
+  const theme = isDark ? "dark" : "light";
+  // The token belongs to the widget instance that produced it, so a theme change
+  // may only re-draw the widget while it is still unsolved. Throwing away a
+  // challenge the supplier has already passed would make them prove they are
+  // human a second time, which is exactly the kind of thing that loses a quote.
+  const themeRef = useRef(theme);
+  const solvedRef = useRef(false);
+  const [themeKey, setThemeKey] = useState(0);
+
+  useEffect(() => {
+    if (themeRef.current === theme) return;
+    themeRef.current = theme;
+    if (!solvedRef.current) setThemeKey((previous) => previous + 1);
+  }, [theme]);
 
   // Keep the latest callbacks in a ref so the render effect depends only on the
   // provider/site key. Depending on the callbacks directly would tear down and
@@ -34,11 +56,16 @@ export default function Captcha({ captcha, onToken, onError, resetKey = 0 }) {
 
     let cancelled = false;
     let handle = null;
+    solvedRef.current = false;
     setFailed(null);
 
     renderCaptchaWidget(provider, containerRef.current, {
       siteKey,
-      onToken: (token) => handlersRef.current.onToken?.(token),
+      theme: themeRef.current,
+      onToken: (token) => {
+        solvedRef.current = true;
+        handlersRef.current.onToken?.(token);
+      },
       onError: (message) => {
         setFailed(message);
         handlersRef.current.onError?.(message);
@@ -63,7 +90,7 @@ export default function Captcha({ captcha, onToken, onError, resetKey = 0 }) {
       cancelled = true;
       handle?.remove();
     };
-  }, [provider, siteKey, resetKey]);
+  }, [provider, siteKey, resetKey, themeKey]);
 
   if (!enabled) return null;
 

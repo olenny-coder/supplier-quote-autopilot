@@ -1,4 +1,5 @@
 import { formatDate, formatDateTime } from "@/lib/format";
+import ThemeToggle from "@/theme/ThemeToggle";
 
 /**
  * Buyer-branded header.
@@ -13,6 +14,11 @@ import { formatDate, formatDateTime } from "@/lib/format";
  * wonder whether they had opened the right form, so a services RFQ is described in
  * services terms: the rate basis it is quoted against and the trade it belongs to.
  * The buyer's own wording (`category`) is used as-is.
+ *
+ * The theme toggle lives in the top row, on the right, where the buyer app puts
+ * it. At 360px it sits alone there — the "secure quote link" pill is held back
+ * until `sm` — so the buyer's name keeps its width and the toggle still gets its
+ * full 44px tap target.
  */
 export default function BrandedHeader({ preview }) {
   const company = preview?.buyer_company || "the buyer";
@@ -38,10 +44,13 @@ export default function BrandedHeader({ preview }) {
               <p className="text-xs text-muted">Request for quotation</p>
             </div>
           </div>
-          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-border-default px-3 py-1 text-xs font-medium text-muted sm:flex">
-            <span aria-hidden="true">&#128274;</span>
-            Secure quote link
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-border-default px-3 py-1 text-xs font-medium text-muted sm:flex">
+              <span aria-hidden="true">&#128274;</span>
+              Secure quote link
+            </span>
+            <ThemeToggle />
+          </div>
         </div>
 
         <div className="rounded-b-none pb-4">

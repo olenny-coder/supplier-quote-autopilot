@@ -2,20 +2,24 @@
 
 /*
  * ----------------------------------------------------------------------------
- * Theming strategy — kept deliberately simple for a public, unauthenticated page
+ * Theming strategy — light and dark, driven entirely by CSS custom properties
  * ----------------------------------------------------------------------------
  * The same *semantic* token structure as the buyer app
  * (`../frontend/src/index.css`) is used here: raw values live in CSS custom
  * properties and are surfaced to Tailwind via `@theme inline`, which generates
  * utilities (bg-surface, text-content, …) that resolve to the live variable.
  *
- * Two differences, both intentional:
- *  1. Light mode only. A supplier opening a link from an email should get one
- *     predictable page; following the phone's dark setting would double the
- *     surface area we have to make legible for a page that carries money.
- *  2. The values here are the light half of the sibling palette, so a dark mode
- *     can be added later by re-declaring the same variables under `.dark` (the
- *     `dark` custom variant is already registered below) with no markup change.
+ * Both palettes are declared below — the light half in `:root`, the dark half in
+ * `.dark` — so the page re-themes by toggling the `.dark` class on <html>, with
+ * no `dark:` variants in the markup at all. The dark values are the sibling
+ * app's, so the supplier form and the buyer dashboard read as one product.
+ *
+ * A supplier opens this link from an email on a phone, so the theme follows the
+ * phone's own setting on a first visit (`prefers-color-scheme`) and remembers an
+ * explicit choice made with the header toggle afterwards. `index.html` resolves
+ * that before the first paint to avoid a white flash on a dark phone, and
+ * `src/theme/ThemeProvider.jsx` owns it from then on — the same pattern as
+ * `../frontend/src/shared/theme/`.
  * ----------------------------------------------------------------------------
  */
 
@@ -67,6 +71,74 @@
   /* Effects */
   --ring: rgba(91, 94, 240, 0.35);
   --shadow-color: 220 40% 30%;
+  /* Modal scrim. A token rather than an inline rgba so the bottom-sheet dialog
+     dims the page correctly in both schemes: a navy scrim that reads well over
+     the light palette all but vanishes over the dark one. */
+  --scrim: rgba(15, 23, 42, 0.55);
+}
+
+/*
+ * Dark palette. Every variable declared in `:root` above is mirrored here — a
+ * missing one is not a missing feature, it is an unreadable element (a white
+ * card, an invisible border) that only shows up on a dark phone. Values are the
+ * buyer app's `.dark` block verbatim.
+ */
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #080a12;
+  --bg-gradient: radial-gradient(
+      1200px 600px at 100% -10%,
+      rgba(99, 102, 241, 0.12),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at -10% 0%,
+      rgba(139, 92, 246, 0.1),
+      transparent 55%
+    );
+  --surface: #11131c;
+  --surface-2: #1a1d28;
+  --surface-hover: #1c1f2b;
+  --surface-inset: #0d0f17;
+
+  /* Borders */
+  --border: #232735;
+  --border-strong: #333949;
+
+  /* Text — contrast checked against --surface (#11131c):
+     content 15.6:1, muted 7.0:1, subtle 3.3:1 (decorative only). */
+  --content: #eef1f7;
+  --content-muted: #98a3b8;
+  --content-subtle: #5f6a80;
+
+  /* Brand / primary. Lighter than the light-mode primary and paired with a dark
+     foreground, because #5b5ef0 on a near-black surface does not carry text. */
+  --primary: #7d80f7;
+  --primary-hover: #9295f9;
+  --primary-fg: #0a0b12;
+  --primary-soft: rgba(125, 128, 247, 0.16);
+  --primary-soft-fg: #b4b6fb;
+
+  /* Status — the *-soft backgrounds become translucent tints so they sit on the
+     dark surface instead of punching a light hole in it. */
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.16);
+  --success-soft-fg: #5eead4;
+  --danger: #fb5d76;
+  --danger-hover: #fd7188;
+  --danger-soft: rgba(251, 93, 118, 0.16);
+  --danger-soft-fg: #fda4b0;
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --warning-soft-fg: #fcd34d;
+
+  /* Effects */
+  --ring: rgba(125, 128, 247, 0.45);
+  --shadow-color: 240 60% 2%;
+  /* Slightly stronger than the light scrim: on a dark page the dimming has less
+     contrast to work with, so the sheet needs more of it to read as a layer. */
+  --scrim: rgba(0, 0, 0, 0.66);
 }
 
 @theme inline {
@@ -100,6 +172,7 @@
   --color-warning-soft-fg: var(--warning-soft-fg);
 
   --color-ring: var(--ring);
+  --color-scrim: var(--scrim);
 
   --radius-xl: 0.875rem;
   --radius-2xl: 1.125rem;
@@ -191,6 +264,13 @@ a {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+/* The "rates valid until" field is a native date input; Chrome and Safari draw
+   the calendar button as a near-black glyph, which disappears on a dark surface.
+   Same rule as the buyer app. */
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
 }
 
 @keyframes pop-in {

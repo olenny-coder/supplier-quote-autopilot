@@ -304,6 +304,34 @@ production", because the test suite runs on SQLite while production is PostgreSQ
     resolution logic and, in a misconfigured case, on network access. The virtualenv is
     now on `PATH` and the container execs `uvicorn` directly.
 
+**Found while readying the two web apps for a public deployment:**
+
+23. **The four supplier emails each had their own sign-off.** The invitation signed off
+    as the buyer's company, the two reminder templates signed off as the buyer's
+    *employee* (a named individual, who had not written it), and the missing-fields
+    template signed off as nothing at all. A supplier receiving two of them could not
+    tell whether a person or a system was writing, which is the exact thing that makes a
+    request read as spam — and the missing-fields reminder never named Quote Autopilot
+    anywhere, only "we". All four now share one module (`agents/email_copy.py`): the
+    product signs, the buyer is named beneath it, the buyer's contact is offered as a
+    *reply* address rather than as the author, and the invitation says outright that the
+    supplier's pricing is private. `test_email_house_style.py` asserts the style on every
+    template, parametrized over the template table so a fifth one cannot be added without
+    being covered, and on the LLM system prompt that drafts the personalised variants.
+
+24. **The supplier form was light-only, and the CAPTCHA widget was hardcoded light inside
+    it.** A supplier opening the link from an email on a dark phone got a full-screen white
+    page, and — once the form itself was themed — a white third-party widget in the middle
+    of a dark one. The form now ships both palettes (the buyer app's values, so the two
+    read as one product), follows `prefers-color-scheme` on a first visit, remembers an
+    explicit choice, and resolves the theme in `index.html` before the first paint so there
+    is no flash of the wrong scheme. The widget is drawn in the resolved theme but is only
+    re-drawn while the challenge is *unsolved*, because the provider token belongs to the
+    widget instance and discarding a solved challenge would make the supplier prove they
+    are human twice. The dialog scrim was an inline `rgba()` — the one literal colour in
+    the app's markup — and is now a `--scrim` token, because a navy scrim that dims the
+    light page sensibly all but vanishes over the dark one.
+
 Dead code removed in the same pass: a speculative `GET /quotes/{id}/line-items` alias
 that duplicated `GET /quotes/{id}`, two unused private helpers, an unused `warm_up()`
 whose docstring claimed a caller that did not exist, and 14 unused imports. Lint

@@ -10,8 +10,23 @@ https://{PUBLIC_FORM_URL}/quote/{rfq_id}/{token}
 ```
 
 It is mobile-first (suppliers open it from an email on a phone), fast, and
-deliberately plain: one column, large tap targets, a sticky submit button, and
-no dark mode so the page looks the same for everyone.
+deliberately plain: one column, large tap targets, a sticky submit button.
+
+**Light and dark.** The form follows the phone's own setting on a first visit
+(`prefers-color-scheme`) and remembers an explicit choice afterwards, so a
+supplier who opens the link in a dark room gets a dark form rather than a white
+rectangle — and one who prefers light on a dark phone keeps light. The header
+carries a small theme toggle, and `index.html` applies the resolved theme before
+the first paint so there is no flash of the wrong scheme.
+
+Both palettes are semantic CSS custom properties in `src/index.css` — the light
+values in `:root`, the dark ones in `.dark` — surfaced to Tailwind through
+`@theme inline`. The `.dark` class on `<html>` is the only switch, which is why
+there is not a single `dark:` variant in the markup. The dark values are the
+buyer dashboard's, so the two apps read as one product, and the mechanism itself
+is the dashboard's (`../frontend/src/shared/theme/`). The theme follows the app
+into third-party chrome too: the CAPTCHA widget is rendered with the resolved
+theme, and the `theme-color` meta keeps the phone's status bar in step.
 
 ## What it asks for
 
@@ -178,16 +193,19 @@ bundle.
 
 ```
 public_form/
-├── index.html                  # viewport/theme-color, product title
+├── index.html                  # viewport/theme-color, pre-paint theme script
 ├── vite.config.js              # @ alias, dev :5174, preview :4174
 ├── eslint.config.js            # flat config, mirrors the buyer app
 ├── vercel.json                 # SPA rewrite
 ├── nginx.conf                  # SPA fallback, long-cache hashed assets
 ├── Dockerfile                  # node:22-alpine build → nginx:1.29-alpine
 └── src/
-    ├── main.jsx                # createRoot + StrictMode
+    ├── main.jsx                # createRoot + StrictMode, inside ThemeProvider
     ├── App.jsx                 # the single real route + "not valid" fallback
-    ├── index.css               # Tailwind v4 + semantic design tokens
+    ├── index.css               # Tailwind v4 + light/dark semantic tokens
+    ├── theme/
+    │   ├── ThemeProvider.jsx   # localStorage + prefers-color-scheme, .dark on <html>
+    │   └── ThemeToggle.jsx     # the header switch (44 px tap target)
     ├── lib/
     │   ├── api.js              # fetch client, ApiError kinds, XHR uploads
     │   ├── captcha.js          # provider script loading + widget rendering
@@ -204,7 +222,8 @@ public_form/
     │   ├── LoadingSkeleton.jsx
     │   ├── Notice.jsx          # info / success / warning / danger banners
     │   ├── ProgressNotice.jsx  # stepper + required-details progress
-    │   └── SiteScopeCard.jsx   # read-only site, access notes and deadline
+    │   ├── SiteScopeCard.jsx   # read-only site, access notes and deadline
+    │   └── SubmitBar.jsx       # the sticky submit action bar
     └── pages/
         ├── QuoteFormPage.jsx   # load, validate, upload, submit
         ├── ConfirmationPage.jsx# reference number, copy, download, polling
@@ -220,4 +239,9 @@ public_form/
 - Focus rings are always visible, tap targets are at least 44 px, inputs are
   16 px or larger so iOS Safari does not zoom on focus, and the sticky submit bar
   respects `env(safe-area-inset-bottom)`.
+- The theme toggle is a real `role="switch"` with an `aria-checked` state and an
+  `aria-label` that names the action ("Switch to light mode"/"Switch to dark
+  mode") rather than the state, and it meets the same 44 px tap target as every
+  other control. Colour is never the only signal anywhere on the page, so both
+  palettes carry the same meaning.
 - Animation is reduced automatically for `prefers-reduced-motion`.

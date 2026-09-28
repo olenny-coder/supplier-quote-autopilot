@@ -18,6 +18,10 @@ The templates below are the deterministic fallback used when no LLM is configure
 or the free-tier quota is exhausted, so the copy quality bar applies to them too.
 """
 
+from agents.email_copy import PRODUCT_NAME
+from agents.email_copy import follow_up_context
+from agents.email_copy import reply_note
+from agents.email_copy import signature as _brand_signature
 from agents.quote_parser.completeness import label_for
 
 SYSTEM_PROMPT = """\
@@ -34,9 +38,9 @@ list, do not add items to it, and do not go looking for more.
   - Thank them for the quote once, briefly, without flattery. If they have not
     submitted anything yet, do not thank them for a quote.
   - Ask for the outstanding items as a short list, in the supplier's own
-    vocabulary: "minimum order quantity", "payment terms", "production lead
-    time", "quote validity date", "delivery terms". Never use an internal field
-    name such as "moq", "validity_date", or "lead_time_days".
+    vocabulary: "minimum order quantity", "payment terms", "mobilisation time",
+    "response time (SLA)", "rates valid until". Never use an internal field name
+    such as "moq", "validity_date", or "lead_time_days".
   - When a field is outstanding because it was left blank on a form they already
     submitted, say so plainly and ask only for that.
   - Never restate their pricing back at them.
@@ -45,10 +49,30 @@ list, do not add items to it, and do not go looking for more.
   - Never recommend, hint at, or promise a commercial outcome. Do not say their
     quote is competitive, winning, or being considered — you do not know.
   - Do not re-ask anything the brief does not list.
-  - Four to eight lines of body. No preamble before the greeting. Sign off with
-    the buyer's company name given in the brief.
-  - Plain text only. No markdown, no bullet characters other than a simple "- ".
+  - Four to eight lines of body. No preamble before the greeting. Plain text only.
+    No markdown, no bullet characters other than a simple "- ".
 </rules>
+
+<letters>
+The brief tells you who the buyer is. The message is sent BY the collection system,
+ON BEHALF OF that buyer, so:
+
+  - Name the buyer in the body. A supplier must always know which organisation the
+    quotation is for.
+  - The last line of the body, immediately above the sign-off, is exactly:
+
+        Reply to this email to reach <buyer contact> at <buyer company> directly.
+
+  - Sign off exactly:
+
+        Best regards,
+        Quote Autopilot
+        on behalf of <buyer company>
+
+    Use the buyer's company name from the brief. Never sign as the buyer's employee
+    or invent a person's name, and never sign as anything other than
+    "Quote Autopilot".
+</letters>
 
 Return exactly one JSON object and nothing else:
 
@@ -133,10 +157,26 @@ def _greeting(contact_name: str | None, supplier_name: str) -> str:
     return f"Hello {supplier_name} team,"
 
 
-def _signature(company: str, contact_name: str | None) -> str:
-    if contact_name:
-        return f"Best regards,\n{contact_name}\n{company}"
-    return f"Best regards,\n{company}"
+def _signature(company: str) -> str:
+    """The house sign-off: the product, with the buyer named beneath it.
+
+    Delegated to :mod:`agents.email_copy` so every supplier email ends the same way
+    and the wording cannot drift between the invitation and the reminders. The buyer's
+    contact name is deliberately *not* a parameter: it belongs in the reply line, not
+    in the sign-off, because the contact did not write the message.
+    """
+
+    return _brand_signature(company)
+
+
+def _closing_note(company: str, contact_name: str | None) -> list[str]:
+    """The blank line and reply line above the sign-off, in every supplier email."""
+
+    return [
+        "",
+        reply_note(contact_name, company),
+        "",
+    ]
 
 
 def build_reminder_email(
@@ -166,8 +206,13 @@ def build_reminder_email(
     lines = [
         _greeting(contact_name, supplier_name),
         "",
-        f"We are still collecting quotes for {item_name} under our reference "
-        f"{rfq_number}, and we have not received one from you yet.",
+        # Names the buyer and the product in the body as well as the sign-off: a
+        # reminder is often forwarded on, and the recipient may never have seen the
+        # original invitation.
+        f"{follow_up_context(item_name, rfq_number, buyer_company)}.",
+        "",
+        "We have not received a quotation from you yet, and the request is still "
+        "open.",
         "",
         "You can submit your quotation directly through this link — it takes about "
         "two minutes and needs no account:",
@@ -181,8 +226,8 @@ def build_reminder_email(
         "",
         "If you would rather not quote this time, a one-line reply is genuinely "
         "useful — it lets us stop chasing you.",
-        "",
-        _signature(buyer_company, buyer_contact_name),
+        *_closing_note(buyer_company, buyer_contact_name),
+        _signature(buyer_company),
     ]
 
     return subject, "\n".join(lines)
@@ -227,7 +272,8 @@ def build_missing_fields_email(
     lines = [
         _greeting(contact_name, supplier_name),
         "",
-        f"Thank you for sending your quote for {item_name} ({rfq_number}).",
+        f"Thank you for sending your quote for {item_name} ({rfq_number}) to "
+        f"{buyer_company} through {PRODUCT_NAME}.",
         "",
         f"To be able to compare it against the others on equal terms, {ask}.",
         "",
@@ -235,8 +281,8 @@ def build_missing_fields_email(
         form_link,
         "",
         closing,
-        "",
-        _signature(buyer_company, buyer_contact_name),
+        *_closing_note(buyer_company, buyer_contact_name),
+        _signature(buyer_company),
     ]
 
     return subject, "\n".join(lines)
@@ -259,16 +305,17 @@ def build_deadline_email(
         [
             _greeting(contact_name, supplier_name),
             "",
-            f"We are closing the request for {item_name} ({rfq_number}) on "
-            f"{deadline_text} and have not received your quotation yet.",
+            f"{follow_up_context(item_name, rfq_number, buyer_company)}. We are "
+            f"closing this request on {deadline_text} and have not received your "
+            f"quotation yet.",
             "",
             "If you intend to quote, this link is the fastest route:",
             form_link,
             "",
             "If you would rather pass on this one, just say so and we will take you "
             "off the list for it.",
-            "",
-            _signature(buyer_company, buyer_contact_name),
+            *_closing_note(buyer_company, buyer_contact_name),
+            _signature(buyer_company),
         ]
     )
 

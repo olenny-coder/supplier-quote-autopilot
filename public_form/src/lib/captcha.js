@@ -120,10 +120,17 @@ const CAPTCHA_WIDGET_SIZE = {
 /**
  * Loads the script (if needed) and renders a widget into `container`.
  *
+ * `options.theme` is the app's *resolved* theme ("dark" or "light"), passed in by
+ * the caller rather than hardcoded. The widget is a third-party iframe that paints
+ * its own background, so a light widget on a dark page is a white box in the
+ * middle of the form. Both providers accept "dark" | "light" | "auto"; "auto" is
+ * deliberately not used, because it follows the OS while this page can have been
+ * switched by the supplier, and the two would disagree.
+ *
  * @returns {Promise<{remove: () => void}>} handle used for cleanup on unmount.
  */
 export async function renderCaptchaWidget(provider, container, options) {
-  const { siteKey, onToken, onError } = options;
+  const { siteKey, onToken, onError, theme = "light" } = options;
   const api = await loadCaptchaScript(provider);
 
   if (!container || typeof api?.render !== "function") {
@@ -150,7 +157,7 @@ export async function renderCaptchaWidget(provider, container, options) {
       // the stale value and warn before submission.
       if (settled) onToken?.(null);
     },
-    theme: "light",
+    theme,
   });
 
   return {

@@ -24,6 +24,33 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5ef0'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
     />
+
+    <!--
+      Apply the persisted theme before first paint to avoid a flash of the wrong
+      colour scheme — a supplier opening this link on a dark phone must not get a
+      white rectangle first. Mirrors the logic in src/theme/ThemeProvider.jsx;
+      the two must stay in step. Same approach as the buyer app's index.html.
+
+      The theme-color meta is updated here too, so the phone's status bar follows
+      the page instead of staying light above a dark form.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)"
+          ).matches;
+          var isDark = stored ? stored === "dark" : prefersDark;
+          document.documentElement.classList.toggle("dark", isDark);
+
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute("content", isDark ? "#080a12" : "#f4f6fb");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
 
   <body>
