@@ -250,6 +250,10 @@ fits inside **free tier deployment** on Neon + Render + Vercel.
 - The supplier form sets its own CAPTCHA widget to the scheme actually in use, so a dark page
   never shows a white widget — but a solved challenge is never thrown away just because the
   theme changed.
+- **A real browser icon in both apps**, from one generated drawing: an SVG for current
+  browsers, a multi-resolution `.ico` for the ones that need it, and an opaque 180 px
+  Apple touch icon for a home screen. The tab, the bookmark bar and the phone's toolbar all
+  show the same mark, and `theme-color` follows the app's theme rather than the device's.
 
 ### Deployment
 
@@ -755,8 +759,24 @@ Supplier Quote Autopilot
 │   ├── fx.py · incoterms.py · units.py · cost.py · score.py
 │   └── recommend.py · engine.py · exporters.py
 │
+├── scripts/             repository-level asset jobs (no app code)
+│   └── make_favicons.py draws favicon.svg · favicon.ico · apple-touch-icon.png
+│
 └── docker-compose.yml · render.yaml · .env.example · NOTICE · LICENSE
 ```
+
+**The browser icons are generated, not hand-drawn.** `scripts/make_favicons.py` holds the
+mark as geometry on a 32-unit grid — three ascending bars on a rounded indigo tile, the
+app's own `--primary` pair — and writes three files into `frontend/public/` and
+`public_form/public/`: an SVG, a multi-resolution `.ico` (16/32/48) for browsers that do not
+read SVG icons, and an opaque 180 px `apple-touch-icon.png` (iOS masks the home-screen icon
+itself, so a transparent tile comes out with black corners). One drawing, four formats, the
+same bytes on every machine, and no image library involved: the PNG and the 32-bit `.ico` are
+written by hand from `zlib` and `struct`. The reason is the failure it prevents — the
+dashboard used to point at Vite's template logo, `/vite.svg`, which does not exist in this
+repository, so the tab showed a blank page icon while the supplier form carried a *different*
+mark in a data URI. CI runs `make_favicons.py --check`, so editing the drawing without
+regenerating fails the build rather than shipping two logos.
 
 **The procurement taxonomy lives in one place.** `backend/app/features/rfq/taxonomy.py` owns
 the domain vocabulary — the 19 service categories, the 7 goods categories, the 10 service

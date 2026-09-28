@@ -1,2 +1,8 @@
 * text=auto
 *.lock text eol=lf
+
+# Browser icons. `text=auto` already skips anything with a NUL byte in it, but these
+# two are load-bearing binaries that a future rule could silently corrupt, and a
+# corrupted .ico does not fail loudly — it makes the tab go blank.
+*.ico binary
+*.png binary

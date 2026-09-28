@@ -20,10 +20,20 @@
 
     <title>Submit your quote</title>
 
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5ef0'/%3E%3Cpath d='M9 17l5 5 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
-    />
+    <!--
+      Icons. The same three files as the buyer dashboard, from the same drawing
+      (scripts/make_favicons.py): a supplier who has both open sees one product, not
+      two. The .ico carries 16, 32 and 48 px for browsers that do not read SVG, and
+      the SVG is what every current browser uses.
+
+      This replaces an inline `data:image/svg+xml` icon. The data URI worked, but it
+      was a second copy of the mark that no other app could share and that nothing
+      could regenerate — and there was no apple-touch-icon at all, so a supplier who
+      saved the form to their home screen got a screenshot of the page.
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!--
       Apply the persisted theme before first paint to avoid a flash of the wrong

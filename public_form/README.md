@@ -193,7 +193,8 @@ bundle.
 
 ```
 public_form/
-├── index.html                  # viewport/theme-color, pre-paint theme script
+├── index.html                  # icons, viewport/theme-color, pre-paint theme script
+├── public/                     # favicon.svg · favicon.ico · apple-touch-icon.png
 ├── vite.config.js              # @ alias, dev :5174, preview :4174
 ├── eslint.config.js            # flat config, mirrors the buyer app
 ├── vercel.json                 # SPA rewrite
@@ -229,6 +230,16 @@ public_form/
         ├── ConfirmationPage.jsx# reference number, copy, download, polling
         └── ErrorPage.jsx       # invalid / expired / rate limited / offline
 ```
+
+`public/` holds the three browser icons, which Vite copies verbatim into `dist/`. They
+are **generated** by `scripts/make_favicons.py` at the repository root, from the same
+drawing the buyer dashboard uses, so the two apps are one product in a tab strip —
+edit the drawing there and run it with `--write`, never the files in `public/`
+directly. `favicon.ico` carries 16, 32 and 48 px for browsers that do not read SVG
+icons, and `apple-touch-icon.png` is opaque at 180 px because iOS applies its own
+mask to a home-screen icon. This is also why `index.html` no longer carries an inline
+`data:image/svg+xml` icon: it worked, but it was a second copy of the mark that
+nothing could regenerate.
 
 ## Accessibility notes
 

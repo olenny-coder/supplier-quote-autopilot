@@ -76,6 +76,15 @@ src/
 Each feature has its own `README.md` describing its files, endpoints and the
 decisions behind it.
 
+`public/` holds the three browser icons — `favicon.svg`, `favicon.ico` (16/32/48)
+and `apple-touch-icon.png` — which Vite copies verbatim into `dist/`. They are
+**generated**: the mark is drawn from geometry in `scripts/make_favicons.py` at the
+repository root, so change the drawing there and run it with `--write` rather than
+editing the files in `public/`. `index.html` links all three and sets `theme-color`
+from the same pre-paint script that applies the theme, so the phone's toolbar follows
+the app rather than the device setting — which matters because the buyer can override
+the system preference here.
+
 ### Routes
 
 | Path            | Page                   | Access    | Purpose                                                  |
