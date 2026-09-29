@@ -346,6 +346,30 @@ production", because the test suite runs on SQLite while production is PostgreSQ
     32-bit `.ico` written by hand from `zlib` and `struct` — and CI runs it with `--check`, so
     editing the drawing without regenerating fails the build instead of shipping two logos.
 
+26. **The buyer had no way to see, or hand over, the history of a tender.** Every table in
+    the schema answered "what is the current state?" and none answered "who changed it, and
+    when?". The facts were scattered across `rfqs`, `invitations`, `quotes`, `comparisons`,
+    `approvals` and `follow_ups`, and each of those rows is *overwritten* as the state moves
+    on — a resubmitted quote replaces the first one, and an invitation row keeps only its
+    latest status — so the history was not merely hard to read, it was partly gone. The
+    scheduler's own actions left no trace at all outside the `follow_ups` rows. A new
+    append-only `audit_entries` table now records 29 action types from the services that know
+    what happened, with the actor (buyer, supplier or scheduler), a readable sentence and a
+    small `detail` object; `GET /audit` reads it back with four filters and
+    `GET /audit/export.csv` downloads the same filtered list, oldest first. Three decisions in
+    it are worth recording. **Append-only is enforced, not promised**: a SQLAlchemy
+    `before_update` listener raises, the API exposes only `GET`, and both are asserted — one
+    test reads the published OpenAPI schema. **`rfq_id` is a plain integer, not a foreign
+    key**: a constraint with `ON DELETE SET NULL` would let an unrelated delete rewrite a
+    column of the log, and PostgreSQL and SQLite disagree about it anyway (SQLite only enforces
+    foreign keys when they are switched on, which this application does not do), so the RFQ
+    number, item name and actor label are snapshotted onto each row instead — which is why the
+    entry recording a deletion outlives the RFQ. **Writes happen in the services, not in a
+    middleware**: only the service knows that four suppliers were invited rather than that a
+    POST returned 201, and only the service sees the scheduler, which acts inside the web
+    process with no request at all. Reads are deliberately not logged; a page that wrote a row
+    every time it was opened would bury the entries that matter.
+
 Dead code removed in the same pass: a speculative `GET /quotes/{id}/line-items` alias
 that duplicated `GET /quotes/{id}`, two unused private helpers, an unused `warm_up()`
 whose docstring claimed a caller that did not exist, and 14 unused imports. Lint

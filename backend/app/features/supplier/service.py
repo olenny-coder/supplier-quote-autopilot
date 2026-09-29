@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError
 from app.core.exceptions import NotFoundError
+from app.features.audit.service import AuditService
 from app.features.invitation.model import Invitation
 from app.features.quote.model import SupplierQuote
 from app.features.supplier.model import Supplier
@@ -60,7 +61,15 @@ class SupplierService:
         payload: SupplierCreate,
         *,
         reuse_existing: bool = False,
+        audit: bool = True,
     ) -> Supplier:
+        """Add one supplier.
+
+        ``audit=False`` is for the CSV importer, which records a single summary
+        entry instead: a 300-row upload should be one line in the audit log, not
+        300 lines that bury everything around them.
+        """
+
         email = SupplierService.normalize_email(str(payload.contact_email))
 
         if reuse_existing:
@@ -91,6 +100,23 @@ class SupplierService:
         db.add(supplier)
         db.commit()
         db.refresh(supplier)
+
+        if audit:
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="supplier.created",
+                entity_type="supplier",
+                entity_id=supplier.id,
+                summary=f"Added {supplier.name} ({supplier.contact_email}) to the directory.",
+                detail={
+                    "name": supplier.name,
+                    "contact_email": supplier.contact_email,
+                    "country": supplier.country,
+                    "risk_rating": supplier.risk_rating,
+                },
+                commit=True,
+            )
 
         return supplier
 
@@ -136,7 +162,7 @@ class SupplierService:
 
             try:
                 if existing is None:
-                    supplier = SupplierService.create(db, user_id, payload)
+                    supplier = SupplierService.create(db, user_id, payload, audit=False)
                     created += 1
                 elif on_duplicate == "update":
                     supplier = SupplierService.update(
@@ -144,6 +170,7 @@ class SupplierService:
                         user_id,
                         existing.id,
                         SupplierUpdate(**payload.model_dump()),
+                        audit=False,
                     )
                     updated += 1
                 else:
@@ -164,6 +191,26 @@ class SupplierService:
             imported.append(supplier)
 
         total = created + updated + skipped + len(errors)
+
+        # One entry for the upload, not one per row — see `create`'s `audit` flag.
+        # Recorded even when nothing imported, because "the buyer uploaded a file
+        # and nothing happened" is exactly the kind of thing a log should answer.
+        AuditService.record(
+            db,
+            user_id=user_id,
+            action="supplier.imported",
+            entity_type="supplier",
+            summary=SupplierService.import_message(created, updated, skipped, len(errors)),
+            detail={
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "failed": len(errors),
+                "on_duplicate": on_duplicate,
+                "rows": total,
+            },
+            commit=True,
+        )
 
         return SupplierImportResponse(
             created=created,
@@ -206,6 +253,8 @@ class SupplierService:
         user_id: int,
         supplier_id: int,
         payload: SupplierUpdate,
+        *,
+        audit: bool = True,
     ) -> Supplier:
         supplier = SupplierService.get_by_id(db, user_id, supplier_id)
 
@@ -223,11 +272,31 @@ class SupplierService:
                     f"A supplier with the email {data['contact_email']} already exists."
                 )
 
+        changed = sorted(
+            key
+            for key, value in data.items()
+            if str(getattr(supplier, key, None) or "") != str(value or "")
+        )
+
         for key, value in data.items():
             setattr(supplier, key, value)
 
         db.commit()
         db.refresh(supplier)
+
+        if audit and changed:
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="supplier.updated",
+                entity_type="supplier",
+                entity_id=supplier.id,
+                summary=(
+                    f"Changed {', '.join(changed)} on {supplier.name}."
+                ),
+                detail={"changed": changed},
+                commit=True,
+            )
 
         return supplier
 
@@ -235,8 +304,24 @@ class SupplierService:
     def delete(db: Session, user_id: int, supplier_id: int) -> None:
         supplier = SupplierService.get_by_id(db, user_id, supplier_id)
 
+        name = supplier.name
+        email = supplier.contact_email
+
         db.delete(supplier)
         db.commit()
+
+        # `entity_id` is the id the row had, kept so the entry can still be tied to
+        # the invitations and quotes this supplier appears in elsewhere in the log.
+        AuditService.record(
+            db,
+            user_id=user_id,
+            action="supplier.deleted",
+            entity_type="supplier",
+            entity_id=supplier_id,
+            summary=f"Removed {name} ({email}) from the directory.",
+            detail={"name": name, "contact_email": email},
+            commit=True,
+        )
 
     # ------------------------------------------------------------------ stats
     @staticmethod

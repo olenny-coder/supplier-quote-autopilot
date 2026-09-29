@@ -248,7 +248,7 @@ call it a startup, and do not ask for upvotes.
 > Stack is FastAPI + SQLAlchemy + React 19 + PostgreSQL. The domain logic (parser, follow-up
 > policy, costing and scoring) lives in two packages that do no I/O at all, so the engine is
 > testable without a database or a network, and every LLM call site has a deterministic
-> fallback — it runs with no API key. 526 tests, all offline on SQLite; there's a separate
+> fallback — it runs with no API key. 552 tests, all offline on SQLite; there's a separate
 > test that compiles the schema and queries against the PostgreSQL dialect, because the one
 > bug class that hurt was "green on SQLite, broken on Postgres".
 >

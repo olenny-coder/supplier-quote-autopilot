@@ -9,7 +9,7 @@ headline price, and award as a human.
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/UI-React%2019-61DAFB.svg?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/database-PostgreSQL-4169E1.svg?logo=postgresql&logoColor=white)
-![526 tests passing](https://img.shields.io/badge/tests-526%20passing-brightgreen.svg)
+![552 tests passing](https://img.shields.io/badge/tests-552%20passing-brightgreen.svg)
 ![Deploy: Neon + Render + Vercel](https://img.shields.io/badge/deploy-Neon%20%2B%20Render%20%2B%20Vercel-3DDC84.svg)
 ![LLM: Groq / OpenRouter / Gemini](https://img.shields.io/badge/LLM-Groq%20%7C%20OpenRouter%20%7C%20Gemini%20(free%20tiers)-blueviolet.svg)
 
@@ -255,6 +255,28 @@ fits inside **free tier deployment** on Neon + Render + Vercel.
   Apple touch icon for a home screen. The tab, the bookmark bar and the phone's toolbar all
   show the same mark, and `theme-color` follows the app's theme rather than the device's.
 
+### Audit log
+
+- **An append-only record of what happened in the workspace** — RFQs created and changed,
+  suppliers added and imported, invitations issued and withdrawn, quotes submitted, amended,
+  entered by hand or imported, comparisons run, follow-ups drafted and sent, and every award
+  decision with the buyer's written reason.
+- **The scheduler's own actions are in it too**, which is the part a screen-by-screen history
+  cannot show: "we emailed them twice automatically, then you approved a third" is one list.
+- **Actor attribution that admits the difference**: a supplier's submission is recorded as the
+  *supplier* acting, not the buyer; an automatic chase is recorded as the `Scheduler`; a buyer's
+  edit is recorded as the buyer. A subcontractor answering on a link issued to somebody else is
+  visible as exactly that.
+- **Downloadable as CSV**, honouring the same filters as the screen, oldest first, with a header
+  naming the workspace, the export time and the filters applied — because the file gets emailed
+  to somebody who was not in the tool.
+- **Not editable, by construction.** Nothing in the API can create, change or delete an entry: a
+  SQLAlchemy listener raises on any update, and a test reads the published OpenAPI schema and
+  fails if any verb other than `GET` appears under `/audit`.
+- Entries survive the records they describe. Deleting an RFQ writes the entry that says so and
+  keeps the RFQ number, item name and actor on the row, so the history stays readable and
+  filterable afterwards.
+
 ### Deployment
 
 - Free tier end to end: **Neon** (PostgreSQL) + **Render** (API) + **Vercel** (two static
@@ -337,6 +359,13 @@ you rather than the other way round.
 **The suppliers directory** is reusable: names, contact details, risk rating, and response
 statistics built up from every RFQ they have been invited to. It is how you learn that a
 particular contractor never answers after three days.
+
+**The audit log** is the whole workspace in one list, newest first: who created, changed, emailed
+or decided what, including what the scheduler did on your behalf. Four filters — action, who
+acted, what it was about, which RFQ — and a **Download CSV** button that exports exactly what the
+screen is showing, oldest first, with the workspace name, the export time and the filters applied
+in the header. Nothing on the screen can change an entry; the log is written by the server as
+actions happen, which is why it can be handed to somebody as evidence.
 
 **The supplier form** is a different application on a different origin, and the supplier
 never signs in. They open a link, see who is asking, for what, whether there is a site
@@ -743,12 +772,12 @@ Supplier Quote Autopilot
 │   │   │                storage · rate limiting · exceptions
 │   │   ├── features/    one slice per domain, each model · schema · service · router
 │   │   │                auth · rfq · supplier · invitation · quote · attachment ·
-│   │   │                public_form · followup · comparison · dashboard · chat
+│   │   │                public_form · followup · comparison · dashboard · audit · chat
 │   │   ├── ai/          LLM factory, agent registry, completer bridge
 │   │   └── main.py
 │   ├── alembic/         migrations (env.py reads DATABASE_URL_DIRECT)
 │   ├── scripts/         seed_demo.py · list_routes.py
-│   └── tests/           526 tests, offline and deterministic
+│   └── tests/           552 tests, offline and deterministic
 │
 ├── agents/              PURE domain logic — no web, no database, no I/O
 │   ├── email_copy.py    the house style every supplier email is built from
@@ -831,7 +860,7 @@ storage — **is** async. See assumption A1 in [INTEGRATION_PLAN.md](INTEGRATION
 
 ```bash
 cd backend
-uv run pytest -q                                  # the whole suite: 526 tests, ~75s
+uv run pytest -q                                  # the whole suite: 552 tests
 uv run pytest tests/test_acceptance.py -q          # one file
 uv run pytest --cov=app --cov-report=term-missing  # coverage
 uv run ruff check . ../agents ../comparison        # lint (correctness rules only)
@@ -853,6 +882,7 @@ injecting a fake completer, never a real provider.
 | `test_followup_policy.py` | Each branch of the decision order, reminder caps, and the escalate-don't-chase rule. |
 | `test_email_house_style.py` | The voice of every supplier-facing email: that the invitation and all three follow-up templates each introduce Quote Autopilot, name the buyer in the body as well as the sign-off, say where a reply lands, and sign off as the product rather than as a person — plus the same three rules in the LLM system prompt. Parametrized over the templates so a new one cannot be added without being covered, and in both the service and the goods vocabulary. |
 | `test_supplier_import.py` | The CSV bulk import: header aliases, duplicate handling (`skip` versus `update`), malformed rows reported without aborting the run, BOM handling, and the row and byte caps. |
+| `test_audit_log.py` | The workspace audit log, driven end to end through HTTP: the whole workflow lands in it with the right actor, the right order and the buyer's own words on the award; a supplier submission is attributed to the supplier rather than the buyer; the filters, the paging total and the 400 on an unknown filter value; and the integrity claims — an entry cannot be updated, no verb other than `GET` exists under `/audit`, one tenant cannot read another's log, and the history of a deleted RFQ survives with its number intact. Plus the CSV: header, ordering, quoting of a summary containing commas and quotes, and the same filters as the screen. |
 | `test_demo.py` | The public demo: the snapshot loads without a database or a key, the response carries its disclaimer, and the committed snapshot is scanned to prove that no live invitation token, real email address or non-sample form link was ever published into it. |
 | `test_transports.py` | The HTTP email providers, the LLM client's retry/backoff/rate-limit behaviour, and an assertion that **no SMTP code exists anywhere**. |
 | `test_services_comparison.py` | The services domain as pure logic: the nine criteria, the per-type weight sets, the response-time curve, accreditation coverage and the **25.0 cap**, GST resolution across all six rate/amount combinations, the callout in the landed cost, the rate bases (including that "per job" and "lump sum" are one basis while "per sq m" is not a metre), complete-quote-first ranking, and the parser's SLA/percentage/accreditation normalizers. |
@@ -989,7 +1019,7 @@ fields are named.
 ## 13. Roadmap: what is not built yet
 
 An honest list. These are known and deliberate boundaries of the current version, not
-oversights. It is an MVP with 526 offline tests, a CI pipeline and a free-tier deployment
+oversights. It is an MVP with 552 offline tests, a CI pipeline and a free-tier deployment
 that has been walked through end to end — it has not been through a security audit, and it
 is a solid small-team tool rather than an enterprise system of record.
 

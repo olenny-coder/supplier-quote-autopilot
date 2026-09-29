@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
+from app.features.audit.service import AuditService
 from app.features.invitation.model import Invitation
 from app.features.quote.model import SupplierQuote
 from app.features.rfq import taxonomy
@@ -32,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 #: Applied when a buyer does not name a deadline: two weeks to quote.
 DEFAULT_QUOTE_WINDOW_DAYS = 14
+
+
+def _audit_value(value: object) -> object:
+    """A JSON-safe, comparable form of a column value, for the change detail.
+
+    ``Decimal`` and ``date`` are not JSON-serialisable and compare unequally to
+    themselves across types (``Decimal("9.0") != 9.0`` is false in Python but
+    ``Decimal("9.00") != Decimal("9.0")`` is also false — the comparison is fine,
+    the *serialisation* is what breaks). Converting once, here, keeps the engine
+    change list honest and the JSON column writable.
+    """
+
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+
+    if isinstance(value, Decimal):
+        return str(value)
+
+    return value
 
 
 class RFQService:
@@ -100,6 +120,30 @@ class RFQService:
         db.commit()
         db.refresh(rfq)
 
+        # Written after the commit so the entry can name the RFQ number, which the
+        # database generates. Its own commit, so a failure here cannot roll back an
+        # RFQ the buyer has already been told exists.
+        AuditService.record(
+            db,
+            user_id=user_id,
+            action="rfq.created",
+            entity_type="rfq",
+            entity_id=rfq.id,
+            rfq=rfq,
+            summary=(
+                f"Created {rfq.rfq_number} — {rfq.item_name} "
+                f"({rfq.quantity:,} {rfq.unit}), {rfq.procurement_type} procurement."
+            ),
+            detail={
+                "item_name": rfq.item_name,
+                "quantity": rfq.quantity,
+                "unit": rfq.unit,
+                "currency": rfq.currency,
+                "deadline": rfq.deadline.date().isoformat() if rfq.deadline else None,
+            },
+            commit=True,
+        )
+
         return rfq
 
     @staticmethod
@@ -119,6 +163,15 @@ class RFQService:
             exclude_unset=True,
         )
 
+        # Recorded before the values are overwritten: the log has to name what
+        # changed, and after this loop the previous values are gone. `old` is the
+        # only copy of them left in the process.
+        changed = {
+            key: {"from": _audit_value(getattr(rfq, key, None)), "to": _audit_value(value)}
+            for key, value in update_data.items()
+            if _audit_value(getattr(rfq, key, None)) != _audit_value(value)
+        }
+
         for key, value in update_data.items():
             setattr(
                 rfq,
@@ -128,6 +181,23 @@ class RFQService:
 
         db.commit()
         db.refresh(rfq)
+
+        if changed:
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="rfq.updated",
+                entity_type="rfq",
+                entity_id=rfq.id,
+                rfq=rfq,
+                summary=(
+                    f"Changed {len(changed)} field(s) on {rfq.rfq_number}: "
+                    + ", ".join(sorted(changed))
+                    + "."
+                ),
+                detail={"changed": changed},
+                commit=True,
+            )
 
         return rfq
 
@@ -143,9 +213,44 @@ class RFQService:
             user_id=user_id,
         )
 
+        # Captured before the delete: this entry is the only remaining record of
+        # what the RFQ was, and it is the reason `rfq_number` and `item_name` are
+        # snapshotted onto every entry rather than joined at read time.
+        number = rfq.rfq_number
+        item_name = rfq.item_name
+        quote_count = len(rfq.quotes or [])
+        invitation_count = len(rfq.invitations or [])
+
+        owner_id = rfq.user_id if rfq.user_id is not None else user_id
+
         db.delete(rfq)
 
         db.commit()
+
+        AuditService.record(
+            db,
+            user_id=owner_id,
+            # No `rfq=` here: the row is gone. The snapshots below are what keeps
+            # this entry readable, and `rfq_id` is kept so the history that led to
+            # the deletion still filters together with it.
+            action="rfq.deleted",
+            entity_type="rfq",
+            entity_id=rfq_id,
+            rfq_id=rfq_id,
+            rfq_number=number,
+            item_name=item_name,
+            summary=(
+                f"Deleted {number} — {item_name}, with {invitation_count} "
+                f"invitation(s) and {quote_count} quote(s)."
+            ),
+            detail={
+                "rfq_number": number,
+                "item_name": item_name,
+                "invitations": invitation_count,
+                "quotes": quote_count,
+            },
+            commit=True,
+        )
 
     # ------------------------------------------------------------------ counters
     @staticmethod

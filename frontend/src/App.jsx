@@ -8,6 +8,7 @@ import ProtectedRoute from "@/features/auth/components/ProtectedRoute";
 import { useAuth } from "@/features/auth/useAuth";
 import LoginPage from "@/features/auth/pages/LoginPage";
 import RegisterPage from "@/features/auth/pages/RegisterPage";
+import AuditLogPage from "@/features/audit/pages/AuditLogPage";
 import ChatWidget from "@/features/chat/components/ChatWidget";
 import DashboardPage from "@/features/dashboard/pages/DashboardPage";
 import DemoPage from "@/features/demo/pages/DemoPage";
@@ -86,6 +87,10 @@ function App() {
             {/* The workspace-wide follow-up approval queue, linked from the
                 dashboard's "awaiting your approval" card. */}
             <Route path="/follow-ups" element={<PendingFollowUpsPage />} />
+
+            {/* Read-only, and the only screen whose data cannot be changed from
+                the UI: the log is written by the API as actions happen. */}
+            <Route path="/audit" element={<AuditLogPage />} />
           </Route>
         </Route>
 

@@ -62,13 +62,15 @@ src/
 │   ├── comparison/          # ranked table, weights, recommendation, award approval
 │   ├── supplier/            # supplier directory (CRUD + response stats)
 │   ├── followup/            # approval queue + communication log
+│   ├── audit/               # workspace audit log + CSV download (read-only)
 │   └── chat/                # procurement assistant widget (mounts for signed-in buyers)
 │
 └── shared/
     ├── api/client.js        # axios instance: base URL, bearer token, 401 redirect, Error(message)
     ├── components/          # Modal, ConfirmModal, Loading, EmptyState, StatusBadge,
-    │                        #   ChipMultiSelect (accreditation picker), ui/ primitives
-    ├── layout/Header.jsx    # wordmark, Dashboard/RFQs/Suppliers nav, account menu, theme toggle
+    │                        #   Logo (the mark the favicon is drawn from), ChipMultiSelect,
+    │                        #   ui/ primitives
+    ├── layout/Header.jsx    # wordmark, Dashboard/RFQs/Suppliers/Audit nav, account menu, theme toggle
     ├── lib/                 # format.js, status.js (status→badge mapping), clipboard.js
     └── theme/               # ThemeProvider, ThemeToggle, ThemedToaster
 ```
@@ -97,6 +99,7 @@ the system preference here.
 | `/rfqs/:id`     | `RFQDetailsPage`       | protected | Tabbed workbench: suppliers · quotes · comparison · follow-ups · details. |
 | `/suppliers`    | `SupplierListPage`     | protected | Supplier directory.                                       |
 | `/follow-ups`   | `PendingFollowUpsPage` | protected | Workspace-wide queue of drafts awaiting approval.         |
+| `/audit`        | `AuditLogPage`         | protected | Read-only audit log, filterable, with a CSV download.      |
 | `*`             | —                      | —         | Redirects to `/` when signed in, otherwise `/login`.      |
 
 The RFQ detail tab is part of the URL (`/rfqs/12?tab=comparison`), so the

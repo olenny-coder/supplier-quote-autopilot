@@ -26,6 +26,7 @@ from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
 from app.core.security import generate_reference_number
+from app.features.audit.service import AuditService
 from app.features.invitation.model import Invitation
 from app.features.invitation.service import InvitationService
 from app.features.public_form.schema import PublicQuoteResponse
@@ -321,6 +322,40 @@ class PublicFormService:
             report.status,
         )
 
+        # The supplier is the actor here, not the buyer: this is the one place in
+        # the log where the workspace owner did not do the thing being recorded,
+        # and saying so is the point. `actor_type="supplier"` is what lets the audit
+        # page answer "what did they actually send us, and when?" separately from
+        # "what did we do about it?".
+        AuditService.record(
+            db,
+            user_id=rfq.user_id,
+            action="quote.submitted" if created else "quote.amended",
+            entity_type="quote",
+            entity_id=quote.id,
+            rfq=rfq,
+            actor_type="supplier",
+            actor_label=invitation.supplier.name if invitation.supplier else quote.supplier_name,
+            summary=(
+                f"{'Submitted' if created else 'Amended'} a quote for "
+                f"{rfq.rfq_number}: {report.status}"
+                + (
+                    f", missing {', '.join(report.missing_labels)}."
+                    if report.missing_labels
+                    else " — complete."
+                )
+            ),
+            detail={
+                "supplier_name": quote.supplier_name,
+                "completeness": report.status,
+                "missing_fields": list(report.missing),
+                "attachments": len(quote.attachments or []),
+                "reference_number": quote.reference_number,
+                "amended": not created,
+            },
+            commit=True,
+        )
+
         return quote, created
 
     @staticmethod
@@ -329,7 +364,7 @@ class PublicFormService:
 
         from app.features.comparison.service import ComparisonService
 
-        ComparisonService.recompute(db, rfq, use_llm=False)
+        ComparisonService.recompute(db, rfq, use_llm=False, audit=False)
 
     @staticmethod
     def resolve_attachments(

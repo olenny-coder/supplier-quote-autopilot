@@ -21,6 +21,7 @@ from app.core.exceptions import BadRequestError
 from app.core.exceptions import NotFoundError
 from app.core.llm_client import get_llm_client
 from app.core.mixins import utcnow
+from app.features.audit.service import AuditService
 from app.features.comparison import repository
 from app.features.comparison.model import Approval
 from app.features.comparison.model import Comparison
@@ -43,7 +44,8 @@ class ComparisonService:
         rfq = quote.rfq
         missing = [str(field) for field in (quote.missing_fields or [])]
 
-        return QuoteSummary(            id=quote.id,
+        return QuoteSummary(
+            id=quote.id,
             rfq_id=quote.rfq_id,
             supplier_id=quote.supplier_id,
             invitation_id=quote.invitation_id,
@@ -197,8 +199,17 @@ class ComparisonService:
         *,
         weights: dict[str, float] | None = None,
         use_llm: bool = True,
+        user_id: int | None = None,
+        audit: bool = True,
     ) -> Comparison:
-        """Score the current quotes and persist an immutable snapshot."""
+        """Score the current quotes and persist an immutable snapshot.
+
+        ``audit=False`` exists because this runs implicitly after a submission, an
+        import or an edit — the buyer did not ask for it, and logging every one of
+        those would bury the runs they did ask for under automatic ones. The
+        explicit run (and the export, which is also a buyer action) passes
+        ``audit=True``.
+        """
 
         payload = ComparisonService.build_input(db, rfq)
 
@@ -263,6 +274,38 @@ class ComparisonService:
 
         db.commit()
         db.refresh(comparison)
+
+        if audit:
+            recommended = next(
+                (
+                    item.supplier_name
+                    for item in result.results
+                    if item.quote_id == result.recommended_quote_id
+                ),
+                None,
+            )
+
+            AuditService.record(
+                db,
+                user_id=user_id if user_id is not None else rfq.user_id,
+                action="comparison.run",
+                entity_type="comparison",
+                entity_id=comparison.id,
+                rfq=rfq,
+                summary=(
+                    f"Scored {len(result.results)} quote(s) for {rfq.rfq_number}"
+                    + (f" — recommended {recommended}." if recommended else ".")
+                ),
+                detail={
+                    "quotes_scored": len(result.results),
+                    "recommended_quote_id": result.recommended_quote_id,
+                    "recommended_supplier": recommended,
+                    "is_conclusive": bool(result.is_conclusive),
+                    "weights_overridden": bool(weights),
+                    "computed_by": computed_by,
+                },
+                commit=True,
+            )
 
         return comparison
 
@@ -471,6 +514,46 @@ class ComparisonService:
 
         db.commit()
         db.refresh(approval)
+
+        # The most important line in the whole log, and the reason it exists: the
+        # buyer's decision, in their own words, with whether they followed the
+        # recommendation or overrode it. `decided_by_email` is snapshotted on the
+        # approval too, but the audit entry is what makes the decision appear in one
+        # timeline with the invitations and submissions that led to it.
+        AuditService.record(
+            db,
+            user_id=user.id,
+            action=f"award.{decision}",
+            entity_type="approval",
+            entity_id=approval.id,
+            rfq=rfq,
+            actor_label=user.company_name or user.email,
+            summary=(
+                (
+                    f"Overrode the recommendation and awarded {quote.supplier_name}"
+                    if approval.overrode_recommendation
+                    else f"Awarded {quote.supplier_name}"
+                )
+                if decision == "approved"
+                else f"{decision.capitalize()} the quote from {quote.supplier_name}"
+            )
+            + f" for {rfq.rfq_number}. Reason: “{note.strip()}”",
+            detail={
+                "decision": decision,
+                "quote_id": quote.id,
+                "supplier_name": quote.supplier_name,
+                "recommended_quote_id": recommended_id,
+                "overrode_recommendation": approval.overrode_recommendation,
+                "awarded_total_cost": (
+                    str(approval.awarded_total_cost)
+                    if approval.awarded_total_cost is not None
+                    else None
+                ),
+                "awarded_currency": approval.awarded_currency,
+                "note": note,
+            },
+            commit=True,
+        )
 
         return approval
 

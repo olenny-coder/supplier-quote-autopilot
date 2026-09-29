@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+import { LogoBadge } from "@/shared/components/Logo";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 
 import { useAuth } from "@/features/auth/useAuth";
@@ -9,6 +10,9 @@ const NAV_ITEMS = [
   { label: "Dashboard", to: "/" },
   { label: "RFQs", to: "/rfqs" },
   { label: "Suppliers", to: "/suppliers" },
+  // Short label on purpose: the bar already carries the wordmark, a theme toggle
+  // and the account menu, and "Audit log" pushes the group past 640px.
+  { label: "Audit", to: "/audit" },
 ];
 
 /**
@@ -69,21 +73,7 @@ function Header() {
       <div className="mx-auto max-w-7xl px-5 sm:px-6">
         <div className="flex h-16 items-center justify-between gap-4">
           <Link to="/" className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-primary to-violet-500 shadow-lg shadow-primary/25">
-              <svg
-                className="h-5 w-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                />
-              </svg>
-            </span>
+            <LogoBadge size={36} />
             <span className="flex min-w-0 flex-col leading-none">
               <span className="truncate text-sm font-semibold tracking-tight text-content">
                 Supplier Quote Autopilot

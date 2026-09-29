@@ -20,6 +20,7 @@ from app.core.exceptions import InvitationExpiredError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
 from app.core.security import generate_invitation_token
+from app.features.audit.service import AuditService
 from app.features.followup.model import FollowUp
 from app.features.invitation.messaging import build_invitation_email
 from app.features.invitation.model import Invitation
@@ -91,7 +92,15 @@ class InvitationService:
         *,
         expires_at: datetime | None = None,
         send_now: bool = False,
+        audit: bool = True,
     ) -> Invitation:
+        """Invite one supplier.
+
+        ``audit=False`` is for the bulk path, which records one entry for the whole
+        batch: inviting twelve contractors is one action by the buyer, and twelve
+        lines would push everything else off the page.
+        """
+
         rfq = InvitationService.get_rfq(db, user_id, rfq_id)
 
         supplier = db.get(Supplier, supplier_id)
@@ -116,8 +125,28 @@ class InvitationService:
                 db.commit()
                 db.refresh(existing)
 
+                if audit:
+                    AuditService.record(
+                        db,
+                        user_id=user_id,
+                        action="invitation.created",
+                        entity_type="invitation",
+                        entity_id=existing.id,
+                        rfq=rfq,
+                        summary=(
+                            f"Re-instated the invitation to {supplier.name} for "
+                            f"{rfq.rfq_number}. The original link works again."
+                        ),
+                        detail={
+                            "supplier_name": supplier.name,
+                            "supplier_email": supplier.contact_email,
+                            "reinstated": True,
+                        },
+                        commit=True,
+                    )
+
                 if send_now:
-                    InvitationService.send(db, existing)
+                    InvitationService.send(db, existing, user_id=user_id)
 
                 return existing
 
@@ -137,8 +166,33 @@ class InvitationService:
         db.commit()
         db.refresh(invitation)
 
+        if audit:
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="invitation.created",
+                entity_type="invitation",
+                entity_id=invitation.id,
+                rfq=rfq,
+                summary=(
+                    f"Invited {supplier.name} ({supplier.contact_email}) to quote "
+                    f"for {rfq.rfq_number}."
+                ),
+                detail={
+                    "supplier_id": supplier.id,
+                    "supplier_name": supplier.name,
+                    "supplier_email": supplier.contact_email,
+                    "expires_at": (
+                        invitation.expires_at.isoformat()
+                        if invitation.expires_at
+                        else None
+                    ),
+                },
+                commit=True,
+            )
+
         if send_now:
-            InvitationService.send(db, invitation)
+            InvitationService.send(db, invitation, user_id=user_id)
 
         return invitation
 
@@ -180,6 +234,7 @@ class InvitationService:
                         rfq_id=rfq_id,
                         supplier_id=supplier_id,
                         send_now=False,
+                        audit=False,
                     )
                 )
             except ConflictError:
@@ -194,10 +249,38 @@ class InvitationService:
                 if existing is not None:
                     invitations.append(existing)
 
+        if invitations:
+            rfq = db.get(RFQ, rfq_id)
+            names = [invitation.supplier.name for invitation in invitations if invitation.supplier]
+
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="invitation.created",
+                entity_type="invitation",
+                entity_id=None,
+                rfq=rfq,
+                # The names, not just the count: "who did we invite?" is the
+                # question this line has to be able to answer months later, when
+                # the invitations themselves have been reissued or withdrawn.
+                summary=(
+                    f"Invited {len(invitations)} supplier(s) to "
+                    f"{rfq.rfq_number if rfq else rfq_id}: "
+                    + ", ".join(names)
+                    + "."
+                ),
+                detail={
+                    "count": len(invitations),
+                    "suppliers": names,
+                    "supplier_ids": [invitation.supplier_id for invitation in invitations],
+                },
+                commit=True,
+            )
+
         if send_now:
             for invitation in invitations:
                 if invitation.sent_at is None:
-                    InvitationService.send(db, invitation)
+                    InvitationService.send(db, invitation, user_id=user_id)
 
         return invitations
 
@@ -267,12 +350,21 @@ class InvitationService:
         )
 
     @staticmethod
-    def send(db: Session, invitation: Invitation) -> FollowUp:
+    def send(
+        db: Session,
+        invitation: Invitation,
+        *,
+        user_id: int | None = None,
+        action: str = "invitation.sent",
+    ) -> FollowUp:
         """Send the form link and log it as a FollowUp row of kind ``manual``.
 
         Logging the initial send in the same table as the reminders means the
         buyer's communication log is genuinely complete — every message that went
         out is one query away.
+
+        ``action`` distinguishes the first send from a resend, because "we chased
+        them twice" is a different fact from "we sent it once".
         """
 
         message = InvitationService.build_email(db, invitation)
@@ -324,6 +416,33 @@ class InvitationService:
         db.refresh(followup)
         db.refresh(invitation)
 
+        rfq = invitation.rfq or db.get(RFQ, invitation.rfq_id)
+        supplier = invitation.supplier
+        to_email = message.to_email
+
+        AuditService.record(
+            db,
+            user_id=(
+                user_id if user_id is not None else (rfq.user_id if rfq else None)
+            ),
+            action=action,
+            entity_type="invitation",
+            entity_id=invitation.id,
+            rfq=rfq,
+            summary=(
+                f"{'Emailed' if status == 'sent' else 'Could not email'} the "
+                f"invitation to {supplier.name if supplier else to_email}"
+                + ("" if status == "sent" else f": {error}")
+            ),
+            detail={
+                "to_email": to_email,
+                "status": status,
+                "supplier_name": supplier.name if supplier else None,
+                "followup_id": followup.id,
+            },
+            commit=True,
+        )
+
         return followup
 
     @staticmethod
@@ -347,7 +466,12 @@ class InvitationService:
                     days=settings.INVITATION_TTL_DAYS
                 )
 
-        return InvitationService.send(db, invitation)
+        return InvitationService.send(
+            db,
+            invitation,
+            user_id=user_id,
+            action="invitation.resent",
+        )
 
     # ---------------------------------------------------------------- status
     @staticmethod

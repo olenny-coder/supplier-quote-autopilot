@@ -33,6 +33,7 @@ from app.core.exceptions import BadRequestError
 from app.core.exceptions import ExternalServiceError
 from app.core.exceptions import NotFoundError
 from app.core.mixins import utcnow
+from app.features.audit.service import AuditService
 from app.features.followup import repository
 from app.features.followup.model import FollowUp
 from app.features.followup.snapshots import build_snapshot
@@ -105,6 +106,41 @@ class FollowUpService:
         db.commit()
         db.refresh(followup)
 
+        rfq = invitation.rfq
+        supplier_name = invitation.supplier.name if invitation.supplier else None
+        automatic = triggered_by == "scheduler"
+
+        AuditService.record(
+            db,
+            user_id=rfq.user_id if rfq is not None else None,
+            action="followup.drafted" if not automatic else "followup.drafted",
+            entity_type="followup",
+            entity_id=followup.id,
+            rfq=rfq,
+            actor_type="system" if automatic else "buyer",
+            actor_label="Scheduler" if automatic else None,
+            summary=(
+                f"Drafted a {draft.kind.replace('_', ' ')} message to "
+                f"{supplier_name or draft.to_email}"
+                + (
+                    " — waiting for your approval."
+                    if followup.status == "draft"
+                    else "."
+                )
+            ),
+            detail={
+                "kind": followup.kind,
+                "status": followup.status,
+                "sequence": followup.sequence,
+                "to_email": followup.to_email,
+                "supplier_name": supplier_name,
+                "llm_generated": bool(draft.llm_generated),
+                "requested_labels": list(decision.requested_labels or []),
+                "reason": decision.reason,
+            },
+            commit=True,
+        )
+
         return followup
 
     # -------------------------------------------------------------- sending
@@ -138,6 +174,32 @@ class FollowUpService:
         if result.status != "sent":
             message = result.error or "The email provider rejected the message."
 
+        AuditService.record(
+            db,
+            user_id=user_id,
+            action="followup.approved",
+            entity_type="followup",
+            entity_id=result.id,
+            rfq=result.rfq,
+            summary=(
+                f"Approved and sent a follow-up to "
+                f"{result.supplier.name if result.supplier else result.to_email}"
+                if result.status == "sent"
+                else f"Approved a follow-up to {result.to_email}, which failed to send"
+            )
+            + (f": {result.error}" if result.status != "sent" else "."),
+            detail={
+                "kind": result.kind,
+                "status": result.status,
+                "sequence": result.sequence,
+                "to_email": result.to_email,
+                "llm_generated": bool(result.llm_generated),
+                "edited": bool(subject or body),
+                "error": result.error,
+            },
+            commit=True,
+        )
+
         return result, message
 
     @staticmethod
@@ -157,6 +219,26 @@ class FollowUpService:
 
         db.commit()
         db.refresh(followup)
+
+        AuditService.record(
+            db,
+            user_id=user_id,
+            action="followup.rejected",
+            entity_type="followup",
+            entity_id=followup.id,
+            rfq=followup.rfq,
+            summary=(
+                f"Discarded the draft follow-up to "
+                f"{followup.supplier.name if followup.supplier else followup.to_email}"
+                + (f": {reason}" if reason else ".")
+            ),
+            detail={
+                "kind": followup.kind,
+                "to_email": followup.to_email,
+                "reason": reason,
+            },
+            commit=True,
+        )
 
         return followup
 
@@ -193,6 +275,43 @@ class FollowUpService:
 
         db.commit()
         db.refresh(followup)
+
+        # Only the scheduler's own sends are logged here. A buyer-initiated send is
+        # logged by its caller (`approve`, `create_manual`) with the outcome in the
+        # entry's detail, so one click does not become two lines; the scheduler has
+        # no such caller, and without this its automatic sends would leave no trace
+        # at all — which is the single biggest reason this log exists.
+        if followup.triggered_by == "scheduler":
+            rfq = followup.rfq
+            who = followup.supplier.name if followup.supplier else followup.to_email
+            delivered = followup.status == "sent"
+
+            AuditService.record(
+                db,
+                user_id=rfq.user_id if rfq is not None else None,
+                action="followup.sent" if delivered else "followup.failed",
+                entity_type="followup",
+                entity_id=followup.id,
+                rfq=rfq,
+                actor_type="system",
+                actor_label="Scheduler",
+                summary=(
+                    f"Automatically sent a {followup.kind.replace('_', ' ')} "
+                    f"message to {who}."
+                    if delivered
+                    else f"The automatic follow-up to {who} failed to send: "
+                    f"{followup.error}"
+                ),
+                detail={
+                    "kind": followup.kind,
+                    "status": followup.status,
+                    "sequence": followup.sequence,
+                    "to_email": followup.to_email,
+                    "llm_generated": bool(followup.llm_generated),
+                    "error": followup.error,
+                },
+                commit=True,
+            )
 
         return followup
 
@@ -242,7 +361,32 @@ class FollowUpService:
             db.commit()
             db.refresh(followup)
 
-            return FollowUpService._deliver(db, followup)
+            delivered = FollowUpService._deliver(db, followup)
+
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="followup.manual",
+                entity_type="followup",
+                entity_id=delivered.id,
+                rfq=delivered.rfq,
+                summary=(
+                    f"Wrote and sent your own message to "
+                    f"{invitation.supplier.name if invitation.supplier else delivered.to_email}"
+                    f" — “{subject}”."
+                ),
+                detail={
+                    "kind": "manual",
+                    "status": delivered.status,
+                    "to_email": delivered.to_email,
+                    "subject": subject,
+                    "custom_body": True,
+                    "error": delivered.error,
+                },
+                commit=True,
+            )
+
+            return delivered
 
         # A reminder built by the agent, ignoring the "not due yet" check — the
         # buyer asked for it explicitly.
@@ -279,7 +423,36 @@ class FollowUpService:
         should_send = settings.AUTO_SEND_FOLLOWUPS if send_now is None else send_now
 
         if should_send:
-            return FollowUpService._deliver(db, followup)
+            delivered = FollowUpService._deliver(db, followup)
+
+            AuditService.record(
+                db,
+                user_id=user_id,
+                action="followup.manual",
+                entity_type="followup",
+                entity_id=delivered.id,
+                rfq=delivered.rfq,
+                summary=(
+                    f"Sent a {delivered.kind.replace('_', ' ')} message to "
+                    f"{invitation.supplier.name if invitation.supplier else delivered.to_email} "
+                    f"on demand."
+                    + (
+                        ""
+                        if delivered.status == "sent"
+                        else f" It failed: {delivered.error}"
+                    )
+                ),
+                detail={
+                    "kind": delivered.kind,
+                    "status": delivered.status,
+                    "to_email": delivered.to_email,
+                    "requested_labels": list(decision.requested_labels or []),
+                    "error": delivered.error,
+                },
+                commit=True,
+            )
+
+            return delivered
 
         return followup
 
@@ -395,6 +568,11 @@ def run_scheduler(db: Session, *, now: datetime | None = None) -> SchedulerSumma
         summary.expired,
     )
 
+    # No separate entry for the sweep itself. Every follow-up it created or sent was
+    # already logged against its own RFQ, by `create_draft` and `_deliver`, with the
+    # supplier named — which is more useful than one line saying "a sweep ran", and
+    # correct per tenant, which a single sweep-level line could not be: this loop is
+    # global and can touch several workspaces in one pass.
     return summary
 
 
@@ -434,6 +612,41 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
             invitation.status = "expired"
             expired += 1
 
+            # One entry per invitation, because each belongs to its own RFQ and
+            # therefore its own workspace — the scheduler loop is global, but this
+            # row is not. `commit=False`: the sweep's own commit below writes it.
+            AuditService.record(
+                db,
+                user_id=rfq.user_id if rfq is not None else None,
+                action="invitation.expired",
+                entity_type="invitation",
+                entity_id=invitation.id,
+                rfq=rfq,
+                actor_type="system",
+                actor_label="Scheduler",
+                summary=(
+                    f"Invitation to "
+                    f"{invitation.supplier.name if invitation.supplier else invitation.id} "
+                    f"expired — "
+                    + (
+                        "the form link reached its expiry date"
+                        if past_link
+                        else "the RFQ deadline passed"
+                    )
+                    + " with no quote received."
+                ),
+                detail={
+                    "supplier_name": (
+                        invitation.supplier.name if invitation.supplier else None
+                    ),
+                    "supplier_id": invitation.supplier_id,
+                    "reason": "link_expired" if past_link else "deadline_passed",
+                    "expires_at": (
+                        expires_at.isoformat() if expires_at is not None else None
+                    ),
+                },
+            )
+
     closed = 0
 
     if expired:
@@ -446,6 +659,26 @@ def expire_overdue(db: Session, *, now: datetime | None = None) -> int:
         for rfq in db.scalars(stmt).all():
             rfq.status = "closed"
             closed += 1
+
+            AuditService.record(
+                db,
+                user_id=rfq.user_id,
+                action="rfq.closed",
+                entity_type="rfq",
+                entity_id=rfq.id,
+                rfq=rfq,
+                actor_type="system",
+                actor_label="Scheduler",
+                summary=(
+                    f"Closed {rfq.rfq_number} — the deadline passed with the request "
+                    f"still open."
+                ),
+                detail={
+                    "deadline": (
+                        rfq.deadline.isoformat() if rfq.deadline is not None else None
+                    )
+                },
+            )
 
         db.commit()
 

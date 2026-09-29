@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import CurrentUser
 from app.core.dependencies import DBSession
 from app.core.exceptions import BadRequestError
+from app.features.audit.service import AuditService
 from app.features.comparison.schema import QuoteSummary
 from app.features.comparison.service import ComparisonService
 from app.features.invitation.service import InvitationService
@@ -130,6 +131,7 @@ def create_quote(
         db=db,
         rfq_id=rfq.id,
         payload=payload,
+        user_id=user.id,
     )
 
     _apply_completeness(db, rfq, quote)
@@ -180,9 +182,33 @@ async def import_quotes(
         if quote.completeness is None or quote.missing_fields is None:
             _apply_completeness(db, rfq, quote)
 
+    # One entry for the upload rather than one per row: a 40-row spreadsheet is a
+    # single action by the buyer. The file name is included because with two
+    # spreadsheets in a day, "which one?" is the first question asked.
+    AuditService.record(
+        db,
+        user_id=user.id,
+        action="quote.imported",
+        entity_type="quote",
+        rfq=rfq,
+        summary=(
+            f"Imported {result['imported']} quote(s) for {rfq.rfq_number} from "
+            f"{file.filename or 'a file'}"
+            + (f", {result['failed']} row(s) failed." if result["failed"] else ".")
+        ),
+        detail={
+            "filename": file.filename,
+            "imported": result["imported"],
+            "failed": result["failed"],
+        },
+        commit=True,
+    )
+
     if rfq.quotes:
         try:
-            ComparisonService.recompute(db, rfq, use_llm=False)
+            # audit=False: the buyer imported a file, they did not ask for a
+            # scoring run. The import itself is the logged action.
+            ComparisonService.recompute(db, rfq, use_llm=False, audit=False)
         except Exception:  # noqa: BLE001 - import succeeded; normalization is best-effort
             import logging
 
@@ -229,12 +255,13 @@ def update_quote(
         db=db,
         quote_id=quote_id,
         payload=payload,
+        user_id=user.id,
     )
 
     _apply_completeness(db, rfq, quote)
 
     try:
-        ComparisonService.recompute(db, rfq, use_llm=False)
+        ComparisonService.recompute(db, rfq, use_llm=False, audit=False)
     except Exception:  # noqa: BLE001
         import logging
 

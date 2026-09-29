@@ -17,7 +17,7 @@ Interactive documentation is served by the app itself:
 
 | Group | Credential |
 | --- | --- |
-| `/auth/*`, `/rfqs/*`, `/suppliers/*`, `/invitations/*`, `/quotes/*`, `/follow-ups/*`, `/comparison/*`, `/dashboard/*`, `/chat/*` | `Authorization: Bearer <access_token>` from `POST /auth/login` |
+| `/auth/*`, `/rfqs/*`, `/suppliers/*`, `/invitations/*`, `/quotes/*`, `/follow-ups/*`, `/comparison/*`, `/dashboard/*`, `/audit/*`, `/chat/*` | `Authorization: Bearer <access_token>` from `POST /auth/login` |
 | `/public/*` | **None.** The invitation token in the URL is the credential. |
 | `/meta/*` | **None.** Taxonomy and deployment defaults only — no buyer data, which is why it is safe to leave open. |
 | `/internal/*` | `X-Scheduler-Secret: <SCHEDULER_SECRET>` |
@@ -105,6 +105,8 @@ Generated from the live OpenAPI schema — `cd backend && uv run python -m scrip
 | `/rfqs/{rfq_id}/comparison/approve` | POST | Comparison | **Record the award decision** |
 | `/rfqs/{rfq_id}/approvals` | GET | Comparison | Award audit trail |
 | `/dashboard/summary` | GET | Dashboard | Workspace roll-up |
+| `/audit` | GET | Audit | Workspace audit log, newest first, with filters |
+| `/audit/export.csv` | GET | Audit | Download the filtered audit log as CSV |
 | `/meta/options` | GET | Meta | Taxonomy, defaults and scoring criteria (no auth) |
 | `/demo/workspace` | GET | Demo | Read-only sample tender (no auth, no writes) |
 | `/public/invitations/{rfq_id}/{token}` | GET | Public form | Form preview (branding + required fields) |
@@ -1041,6 +1043,39 @@ beats five, and the dashboard needs exactly this shape.
 Workspace-wide. `status=draft` (the default) is the buyer's approval queue; `sent` is
 the record of what has actually gone out. The log includes the original form-link sends
 as `kind: "manual"`, so it is genuinely complete.
+
+### `GET /audit` and `GET /audit/export.csv` — the workspace audit log
+
+Both are **read-only and take the same filters**, so the page and the downloaded file
+can never disagree about what is being shown:
+
+| Query parameter | Values | Notes |
+| --- | --- | --- |
+| `action` | an action code, e.g. `award.approved` | `available_actions` lists the codes this workspace has actually produced |
+| `actor_type` | `buyer`, `supplier`, `system` | `system` is the scheduler acting on the buyer's policy |
+| `entity_type` | `rfq`, `supplier`, `invitation`, `quote`, `comparison`, `approval`, `followup`, `user` | what the entry is about |
+| `rfq_id` | integer | entries for a **deleted** RFQ keep this, and keep their `rfq_number` snapshot |
+| `limit`, `offset` | integers | `/audit` only; the page defaults to 100, the cap is 500 |
+
+`/audit` returns `{entries[], total, limit, offset, available_actions[],
+available_rfqs[]}` — `total` is the count matching the filters, ignoring paging, so a
+client can render "showing 50 of 213" without guessing.
+
+A filter value outside the vocabulary is a **400**, not an empty page. An empty audit
+log reads as "nothing has happened", which is the most misleading possible answer from
+this endpoint, so a typo has to fail loudly.
+
+`/audit/export.csv` returns the whole filtered log **oldest first** (a filed audit trail
+is read as a narrative from the beginning) with a context block naming the workspace,
+the moment of export and the filters applied. It is capped at 20 000 rows and says so in
+the last line when it truncates.
+
+The row is written by the server at the moment the action happens, never by a client:
+`action` is a stable code and `action_label` its human wording, `actor_type` plus a
+snapshotted `actor_label` say who did it, `summary` is one readable sentence and `detail`
+holds small specific facts (the fields that changed, the award decision, import counts).
+There is no `POST`, `PATCH` or `DELETE` under `/audit`, and a test asserts that from the
+published schema — an editable audit log is not an audit log.
 
 ### `POST /follow-ups/manual`
 

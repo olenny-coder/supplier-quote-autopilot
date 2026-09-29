@@ -34,6 +34,7 @@ from app.core.email import describe_configuration as describe_email
 from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import describe_configuration as describe_spam
 from app.core.storage import get_storage
+from app.features.audit.router import router as audit_router
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.comparison.router import router as comparison_router
@@ -174,6 +175,7 @@ app.include_router(followup_router)
 app.include_router(comparison_router)
 app.include_router(dashboard_router)
 app.include_router(chat_router)
+app.include_router(audit_router)
 
 # ---- public (token-authenticated) ------------------------------------------
 app.include_router(meta_router)

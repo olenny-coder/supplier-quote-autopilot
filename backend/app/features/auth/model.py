@@ -78,5 +78,14 @@ class User(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
 
+    #: The workspace audit log. Declared as a relationship so deleting an account
+    #: takes its log with it on both dialects — SQLite only honours ``ON DELETE
+    #: CASCADE`` when foreign keys are switched on, which they are not here.
+    audit_entries = relationship(
+        "AuditEntry",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User id={self.id} email={self.email!r}>"

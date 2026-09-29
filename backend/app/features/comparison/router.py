@@ -48,7 +48,11 @@ def get_comparison(
     comparison = None if recompute else repository.latest_for_rfq(db, rfq_id)
 
     if comparison is None:
-        comparison = ComparisonService.recompute(db, rfq, use_llm=use_llm)
+        # audit=False: reading the comparison page is not an action worth a line in
+        # the log. The log records changes and outbound messages, not views — and a
+        # page that writes a row every time it is opened would drown the entries
+        # that matter.
+        comparison = ComparisonService.recompute(db, rfq, use_llm=use_llm, audit=False)
 
     return ComparisonService.to_response(
         comparison, repository.latest_approval_for_rfq(db, rfq_id)
@@ -78,6 +82,7 @@ def run_comparison(
         rfq,
         weights=payload.weights,
         use_llm=payload.use_llm,
+        user_id=user.id,
     )
 
     return ComparisonService.to_response(
@@ -152,7 +157,7 @@ def export_comparison_csv(
         if not rfq.quotes:
             raise NotFoundError("No quotes have been received for this RFQ yet.")
 
-        comparison = ComparisonService.recompute(db, rfq, use_llm=False)
+        comparison = ComparisonService.recompute(db, rfq, use_llm=False, audit=False)
 
     csv_text = ComparisonService.export_csv(db, rfq, comparison)
 

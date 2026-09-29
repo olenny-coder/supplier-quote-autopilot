@@ -6,6 +6,7 @@ from fastapi import Response
 from app.core.dependencies import CurrentUser
 from app.core.dependencies import DBSession
 from app.core.exceptions import BadRequestError
+from app.features.audit.service import AuditService
 from app.features.invitation.schema import InvitationResponse
 from app.features.invitation.schema import InvitationsBulkCreate
 from app.features.invitation.schema import ResendResponse
@@ -138,6 +139,25 @@ def cancel_invitation(
     db.commit()
     db.refresh(invitation)
 
+    AuditService.record(
+        db,
+        user_id=user.id,
+        action="invitation.withdrawn",
+        entity_type="invitation",
+        entity_id=invitation.id,
+        rfq=invitation.rfq,
+        summary=(
+            f"Withdrew the invitation to "
+            f"{invitation.supplier.name if invitation.supplier else invitation.supplier_id} "
+            f"— the link stopped working immediately."
+        ),
+        detail={
+            "supplier_id": invitation.supplier_id,
+            "supplier_name": invitation.supplier.name if invitation.supplier else None,
+        },
+        commit=True,
+    )
+
     return InvitationService.to_response(invitation)
 
 
@@ -154,7 +174,28 @@ def delete_invitation(
         db=db, user_id=user.id, invitation_id=invitation_id
     )
 
+    rfq = invitation.rfq
+    supplier_name = invitation.supplier.name if invitation.supplier else None
+    had_quote = invitation.quote is not None
+
     db.delete(invitation)
     db.commit()
+
+    # Kept after the row is gone, like the RFQ deletion entry: the log has to be
+    # able to say who was removed and whether they had already answered.
+    AuditService.record(
+        db,
+        user_id=user.id,
+        action="invitation.deleted",
+        entity_type="invitation",
+        entity_id=invitation_id,
+        rfq=rfq,
+        summary=(
+            f"Deleted the invitation to {supplier_name}"
+            + (" (it had a quote attached)." if had_quote else ".")
+        ),
+        detail={"supplier_name": supplier_name, "had_quote": had_quote},
+        commit=True,
+    )
 
     return Response(status_code=204)

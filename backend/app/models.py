@@ -6,6 +6,7 @@ one of them could be missed by accident, so the registry is centralised here and
 ``app.main`` / ``alembic/env.py`` import *this* module rather than each slice.
 """
 
+from app.features.audit.model import AuditEntry  # noqa: F401
 from app.features.auth.model import User  # noqa: F401
 from app.features.comparison.model import Approval  # noqa: F401
 from app.features.comparison.model import Comparison  # noqa: F401
@@ -17,6 +18,7 @@ from app.features.supplier.model import Supplier  # noqa: F401
 
 __all__ = [
     "Approval",
+    "AuditEntry",
     "Comparison",
     "FollowUp",
     "Invitation",
