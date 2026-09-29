@@ -9,7 +9,7 @@ headline price, and award as a human.
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)
 ![React 19](https://img.shields.io/badge/UI-React%2019-61DAFB.svg?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/database-PostgreSQL-4169E1.svg?logo=postgresql&logoColor=white)
-![552 tests passing](https://img.shields.io/badge/tests-552%20passing-brightgreen.svg)
+![553 tests passing](https://img.shields.io/badge/tests-553%20passing-brightgreen.svg)
 ![Deploy: Neon + Render + Vercel](https://img.shields.io/badge/deploy-Neon%20%2B%20Render%20%2B%20Vercel-3DDC84.svg)
 ![LLM: Groq / OpenRouter / Gemini](https://img.shields.io/badge/LLM-Groq%20%7C%20OpenRouter%20%7C%20Gemini%20(free%20tiers)-blueviolet.svg)
 
@@ -777,7 +777,7 @@ Supplier Quote Autopilot
 │   │   └── main.py
 │   ├── alembic/         migrations (env.py reads DATABASE_URL_DIRECT)
 │   ├── scripts/         seed_demo.py · list_routes.py
-│   └── tests/           552 tests, offline and deterministic
+│   └── tests/           553 tests, offline and deterministic
 │
 ├── agents/              PURE domain logic — no web, no database, no I/O
 │   ├── email_copy.py    the house style every supplier email is built from
@@ -860,7 +860,7 @@ storage — **is** async. See assumption A1 in [INTEGRATION_PLAN.md](INTEGRATION
 
 ```bash
 cd backend
-uv run pytest -q                                  # the whole suite: 552 tests
+uv run pytest -q                                  # the whole suite: 553 tests
 uv run pytest tests/test_acceptance.py -q          # one file
 uv run pytest --cov=app --cov-report=term-missing  # coverage
 uv run ruff check . ../agents ../comparison        # lint (correctness rules only)
@@ -1019,7 +1019,7 @@ fields are named.
 ## 13. Roadmap: what is not built yet
 
 An honest list. These are known and deliberate boundaries of the current version, not
-oversights. It is an MVP with 552 offline tests, a CI pipeline and a free-tier deployment
+oversights. It is an MVP with 553 offline tests, a CI pipeline and a free-tier deployment
 that has been walked through end to end — it has not been through a security audit, and it
 is a solid small-team tool rather than an enterprise system of record.
 

@@ -405,21 +405,34 @@ def _detail_text(detail: dict[str, Any] | None) -> str:
     ``{"changed": {"item_name": {"from": …, "to": …}}}``, which becomes
     ``changed=item_name: old -> new``, and a list becomes a comma-separated run
     rather than a bracketed one.
+
+    Keys with no value are dropped. ``country=None`` is a Python fact, not a
+    procurement one, and a column full of ``None`` trains the reader to skip the
+    column — which is where the values that matter are.
     """
 
     if not detail:
         return ""
 
-    return " | ".join(f"{key}={_render_detail(value)}" for key, value in detail.items())
+    return " | ".join(
+        f"{key}={rendered}"
+        for key, value in detail.items()
+        if (rendered := _render_detail(value)) != ""
+    )
 
 
 def _render_detail(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+
     if isinstance(value, dict):
         if {"from", "to"} <= set(value):
             return f"{value['from']} -> {value['to']}"
 
         return ", ".join(
-            f"{key}: {_render_detail(item)}" for key, item in value.items()
+            f"{key}: {rendered}"
+            for key, item in value.items()
+            if (rendered := _render_detail(item)) != ""
         )
 
     if isinstance(value, list):

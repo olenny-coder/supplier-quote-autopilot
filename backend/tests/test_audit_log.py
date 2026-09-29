@@ -661,6 +661,29 @@ def test_the_csv_honours_the_same_filters_as_the_page(client, workspace):
     assert "action=award.approved" in text
 
 
+def test_the_csv_omits_detail_keys_that_have_no_value(client, workspace):
+    """`country=None` is a Python fact, not a procurement one.
+
+    The API response keeps the null — a client can rely on the key existing — but
+    the spreadsheet column drops it, because a column of "None" trains the reader
+    to skip the column that holds the values that matter.
+    """
+
+    text = client.get("/audit/export.csv", headers=workspace["headers"]).text
+
+    assert "=None" not in text
+    assert "country=None" not in text
+
+    entry = next(
+        item
+        for item in _log(client, workspace["headers"])["entries"]
+        if item["action"] == "supplier.created"
+    )
+
+    # The null is still in the JSON, which is the contract the API documents.
+    assert entry["detail"]["country"] is None
+
+
 def test_a_summary_containing_commas_and_quotes_stays_one_cell(client, workspace):
     """CSV must not silently split a sentence into three columns."""
 

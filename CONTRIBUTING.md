@@ -300,7 +300,7 @@ it. That is the preferred shape, not a special case.
 - **A reason, not a diff.** Say what the failure mode was and who it hurt. That is the
   part a future reader cannot reconstruct from the code.
 - **Real output.** Paste the commands you ran and what they printed. "Tested locally" is
-  not verifiable; `552 passed` is.
+  not verifiable; `553 passed` is.
 - **A test that fails before the change.** For a bug fix, this is the whole proof.
 - **Documentation kept true.** If your change makes a sentence in the README wrong, fix
   the sentence in the same pull request.
